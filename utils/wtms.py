@@ -5,6 +5,7 @@ from lxml import etree
 import numpy as np
 from io import BytesIO
 from PIL import Image
+from multiprocessing import Pool
 
 class WMTSMap:
     def __init__(self, url_template, gsd, scale, tile_width, tile_height, top_left, year):
@@ -16,6 +17,7 @@ class WMTSMap:
         self.top_left = (float(top_left.split()[0]), float(top_left.split()[1]))
         self.year = int(year)
         self.pix2m = 0.00028  # According to OGC WMTS 1.0 spec for meters
+        self.scaledown = int((self.tile_width * self.scale * self.pix2m)/self.gsd)
 
     def coord2tile(self, cx, cy, int_cast=True):
         """
@@ -44,9 +46,8 @@ class WMTSMap:
         url = self.url_template.format(TileRow=row, TileCol=col)
         response = requests.get(url)
         if response.ok:
-            scale_down = int((self.tile_width * self.scale * self.pix2m)/self.gsd)
             image = Image.open(BytesIO(response.content))
-            image = image.resize((scale_down, scale_down), resample=Image.NEAREST)
+            image = image.resize((self.scaledown, self.scaledown), resample=Image.NEAREST)
             return image
         else:
             raise Exception(f"Failed to fetch tile at {url}")
@@ -80,16 +81,19 @@ class WMTSMap:
             for col_idx, tile in enumerate(row):
                 stitched_img.paste(tile, (col_idx * im_tile_width, row_idx * im_tile_height))
 
-        # Convert to numpy array in rasterio (bands, rows, cols)
+        return stitched_img
+        
+    def save_image(self, stitched_img, top_left, name="output.tif"):
         img_array = np.array(stitched_img).transpose((2, 0, 1))
+        xtl, ytl = self.coord2tile(*top_left)
 
         # convert the tile width and pos back to m coordinates for correct georeferencing
         scale_mpp = self.scale * self.pix2m  
         tile_width_m = self.tile_width * scale_mpp
         tile_height_m = self.tile_height * scale_mpp
         global_top_left_x, global_top_left_y = self.top_left
-        origin_x = global_top_left_x + xt1 * tile_width_m
-        origin_y = global_top_left_y - yt1 * tile_height_m
+        origin_x = global_top_left_x + xtl * tile_width_m
+        origin_y = global_top_left_y - ytl * tile_height_m
 
         transform = rasterio.transform.from_origin(origin_x, origin_y, self.gsd, self.gsd)
 
@@ -104,13 +108,13 @@ class WMTSMap:
             'transform': transform
         }
     
-        with rasterio.open("output.tif", "w", **profile) as dst:
+        with rasterio.open(name, "w", **profile) as dst:
             dst.write(img_array)
-        
 
 
 class WMTSBuilder:
-    def __init__(self, xml_url, identifier="EPSG:28992"):
+    def __init__(self, xml_url, identifier="EPSG:28992", detail=19):
+        self.detail = detail
         self.xml_url = xml_url
         self.identifier = identifier
         self.ns = {
@@ -156,8 +160,7 @@ class WMTSBuilder:
             high_res_tilematrix = None
             for tms in tile_matrix_sets:
                 scales = tms.findall("wmts:TileMatrix/wmts:ScaleDenominator", namespaces=self.ns)
-                scale_values = [float(scale.text) for scale in scales]
-                min_scale_idx = np.argmin(scale_values)
+                min_scale_idx = self.detail
                 high_res_tilematrix = scales[min_scale_idx].getparent()
             
             self.tilematrix = high_res_tilematrix.find("ows:Identifier", namespaces=self.ns).text
