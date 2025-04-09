@@ -8,6 +8,14 @@ from PIL import Image
 from multiprocessing import Pool
 
 class WMTSMap:
+    """
+    Represents a WMTS map source. Fetches image tiles and assembles full images based on coordinates.
+    
+    Inputs:
+        url_template (str), gsd (float), scale (float), tile size (int), top_left (str), year (int)
+    Outputs:
+        Initialized WMTSMap object
+    """
     def __init__(self, url_template, gsd, scale, tile_width, tile_height, top_left, year):
         self.url_template = url_template
         self.gsd = float(gsd)
@@ -21,7 +29,10 @@ class WMTSMap:
 
     def coord2tile(self, cx, cy, int_cast=True):
         """
-        Convert coordinates (cx, cy) to tile row and column at the given zoom level.
+        Converts EPSG:28992 coordinates to tile indices.
+
+        Inputs: cx, cy (float), int_cast (bool), these are x and y parts of coordinates
+        Outputs: tile indices (int or float)
         """
         scale = self.scale
         tile_width_m = self.tile_width * scale * self.pix2m
@@ -37,7 +48,10 @@ class WMTSMap:
 
     def get_tile(self, cx, cy, tiles=False):
         """
-        Fetch the image tile corresponding to the given coordinates (cx, cy).
+        Downloads and resizes a tile image from given coordinates or tile indices.
+
+        Inputs: cx, cy (float or int), tiles (bool) the tiles variable controls whether the coordinates are in tile coords
+        Outputs: PIL.Image tile
         """
         if tiles == False:
             row, col = self.coord2tile(cx, cy)
@@ -54,7 +68,10 @@ class WMTSMap:
         
     def get_image(self, c1, c2):
         """
-        Fetch tiles between two coordinates
+        Fetches and stitches all tiles between two coordinates.
+
+        Inputs: c1, c2 (tuple of float) coordinates
+        Outputs: PIL.Image of combined area
         """
         x1, y1 = c1
         x2, y2 = c2
@@ -67,14 +84,12 @@ class WMTSMap:
         x_size = xt2 - xt1 + 1
         y_size = yt2 - yt1 + 1
 
-        # make a double list of tiles, this was hard
         tiles = [[self.get_tile(x, y, tiles=True) for x in range(xt1, xt2 + 1)] for y in range(yt1, yt2 + 1)]
 
         im_tile_width, im_tile_height = tiles[0][0].size
         im_width = im_tile_width * x_size
         im_height = im_tile_height * y_size
 
-        # precreate the new image to paste in the loop
         stitched_img = Image.new(mode="RGB", size=(im_width, im_height))
 
         for row_idx, row in enumerate(tiles):
@@ -84,10 +99,15 @@ class WMTSMap:
         return stitched_img
         
     def save_image(self, stitched_img, top_left, name="output.tif"):
+        """
+        Saves a georeferenced stitched image as a GeoTIFF. 
+
+        Inputs: stitched_img (PIL.Image), top_left (tuple), name (str)
+        Outputs: Saved GeoTIFF file
+        """
         img_array = np.array(stitched_img).transpose((2, 0, 1))
         xtl, ytl = self.coord2tile(*top_left)
 
-        # convert the tile width and pos back to m coordinates for correct georeferencing
         scale_mpp = self.scale * self.pix2m  
         tile_width_m = self.tile_width * scale_mpp
         tile_height_m = self.tile_height * scale_mpp
@@ -97,7 +117,6 @@ class WMTSMap:
 
         transform = rasterio.transform.from_origin(origin_x, origin_y, self.gsd, self.gsd)
 
-        # Profile for rasterio
         profile = {
             'driver': 'GTiff',
             'height': img_array.shape[1],
@@ -113,6 +132,12 @@ class WMTSMap:
 
 
 class WMTSBuilder:
+    """
+    Builds WMTSMap instances by parsing WMTS capabilities XML.
+
+    Inputs: xml_url (str), identifier (str), detail (int)
+    Outputs: Initialized WMTSBuilder with parsed layer data
+    """
     def __init__(self, xml_url, identifier="EPSG:28992", detail=19):
         self.detail = detail
         self.xml_url = xml_url
@@ -128,9 +153,15 @@ class WMTSBuilder:
         self.top_left = None
         self.tile_width = None
         self.tile_height = None
-        self._load_capabilities()
+        self.load_capabilities()
 
-    def _load_capabilities(self):
+    def load_capabilities(self):
+        """
+        Parses XML capabilities and extracts layer and tile matrix info.
+
+        Inputs: None
+        Outputs: Sets internal state with WMTS metadata
+        """
         resp = requests.get(self.xml_url)
         if resp.ok:
             xml_str = resp.content
@@ -155,7 +186,6 @@ class WMTSBuilder:
                         "gsd": res
                     })
             
-            # Parse tile matrix set (highest resolution)
             tile_matrix_sets = root.findall(f"wmts:Contents/wmts:TileMatrixSet/ows:Identifier[.='{self.identifier}']..", namespaces=self.ns)
             high_res_tilematrix = None
             for tms in tile_matrix_sets:
@@ -170,6 +200,12 @@ class WMTSBuilder:
             self.tile_height = high_res_tilematrix.find("wmts:TileHeight", namespaces=self.ns).text
 
     def build_maps(self):
+        """
+        Constructs WMTSMap objects for all parsed layers.
+
+        Inputs: None
+        Outputs: List of WMTSMap objects
+        """
         template_url_pre = "https://service.pdok.nl/hwh/luchtfotorgb/wmts/v1_0/{Layer}/{TileMatrixSet}/{TileMatrix}"
         template_url_suf = "/{TileRow}/{TileCol}.jpeg"
         maps = []
