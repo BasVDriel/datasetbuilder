@@ -12,7 +12,7 @@ class TileDownloader:
         self.output_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
 
-    def download_tile(self, **kwargs):
+    def download_tile(self, file_name, **kwargs):
         """
         Download a tile using any number of formatting parameters for the URL template.
         The downloaded file will be saved with a filename based on the kwargs.
@@ -21,7 +21,6 @@ class TileDownloader:
         if not self.output_dir:
             raise ValueError("Output directory is not set.")
 
-        file_name = "_".join(str(v) for v in kwargs.values()) + ".tif"
         file_path = os.path.join(self.output_dir, file_name)
 
         # quick check to see if the file is already there
@@ -30,22 +29,23 @@ class TileDownloader:
             return file_path
 
         url = self.url_template.format(**kwargs)
-        response = requests.get(url, stream=True)
-        if response.ok:
-            with open(file_path, "wb") as file:
-                for chunk in response.iter_content(chunk_size=8192):
-                    file.write(chunk)
-            print(f"Downloaded tile to {file_path}")
-            return file_path
-        else:
-            raise Exception(f"Failed to fetch tile at {url} (status code: {response.status_code})")
+        file_path = download_url(url, self.output_dir)
+        return file_path
 
 def download_url(url, directory, filename = None, chunk_size = 1048576):
     """
     Downloads the file from a url to a filepaht in chucks of 1MB with some error handeling
     """
+    # alternative user agent from wget to spoof the
+    headers = {
+        "User-Agent": "Wget/1.21.2",
+        "Accept": "*/*",
+        "Accept-Encoding": "identity",
+        "Connection": "Keep-Alive"
+    }
+
     try:
-        with requests.get(url, stream=True, timeout=30) as response:
+        with requests.get(url, stream=True, timeout=30, headers=headers) as response:
             response.raise_for_status()  # Raise error for bad status if applicable
             total = int(response.headers.get("content-length", 0))
             if filename is None:
