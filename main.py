@@ -1,9 +1,27 @@
 import fire
+import os
 
-ahn_tile_index = "sources/AHN_subunits_GeoTiles.zip"
+source_dir = "sources"
+ahn_tile_fn = "ahn_subtiles.zip"
+ahn_subtile_fn = "ahn_tiles.zip"
+utrecht_trees_fn = "utrecht_trees.gpkg"
+
+ahn_subtile_index = os.path.join(source_dir, ahn_subtile_fn)
+ahn_tile_index = os.path.join(source_dir, ahn_tile_fn)
+utrecht_boomkaart = os.path.join(source_dir, utrecht_trees_fn)
+
+utrecht_trees_url = "https://arcgis.com/sharing/rest/content/items/7e2404cf7fba4bb087935f9cdb51f053/data"
+ahn_subtile_url = "https://static.fwrite.org/2023/01/AHN_subunits_GeoTiles.zip"
+ahn_tile_url = "https://static.fwrite.org/2023/01/AHN_AHN_GeoTiles.zip"
 orthomosaic_wmts_url = "https://service.pdok.nl/hwh/luchtfotorgb/wmts/v1_0?request=GetCapabilities&service=wmts"
-utrecht_boomkaart = "sources/trees_U.geojson"
-elevation_model_index = "sources/kaartbladindex.json"
+
+def get_sources():
+    from utils.tiles import download_url
+    print("Downloading sources from source urls")
+    download_url(ahn_subtile_url, source_dir, filename=ahn_subtile_fn)
+    download_url(ahn_tile_url, source_dir, filename=ahn_tile_fn)
+    download_url(utrecht_trees_url, source_dir, filename=utrecht_trees_fn)
+
 
 def wmts_test():
     from utils.wtms import WMTSBuilder, WMTSMap
@@ -24,6 +42,7 @@ def wmts_test():
 def ahn_test():
     import geopandas as gpd
     import matplotlib.pyplot as plt
+    from utils.tiles import TileDownloader
 
     # Paths
     ahn_tiles_path = "zip://" + ahn_tile_index
@@ -35,9 +54,14 @@ def ahn_test():
     # Joint the points and polygons that contain a tree from the utrecht dataset
     joined = gpd.sjoin(gdf_polygons, gdf_points, how="inner", predicate="contains")
     result_polygons = gdf_polygons[gdf_polygons.index.isin(joined.index)]
-    em_polygons.plot()
-    plt.show()
 
+    print(result_polygons.columns)
+    print(result_polygons["GT_AHNSUB"])
+    print(result_polygons["GT_AHN"])
+
+
+
+    
 
 
 if __name__ == '__main__':
