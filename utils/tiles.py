@@ -25,25 +25,18 @@ class TileDownloader:
             raise ValueError("Output directory is not set.")
 
         url = self.url_template.format(**kwargs)
-        match = re.search(r"https?:\/\/.*\/(.*\.[^.]+$)", url)
-        if not match:
-            raise ValueError(f"Could not extract filename from URL: {url}")
-        file_name = match.group(1)
         file_path = os.path.join(self.output_dir, file_name)
 
-        # quick check to see if the file is already there
-        if os.path.exists(file_path):
-            print(f"File {file_path} already exists. Skipping download.")
-            return file_path
-
-        # check for alternative paths too
-        alternative_extensions = ['.TIF', '.LAZ']
+        # check for alternative paths
+        alternative_extensions = ['.tif', '.laz', ".tiff", ".geojson", ".zip"]
+        alternative_extensions += [ext.upper() for ext in alternative_extensions]
         for ext in alternative_extensions:
-            alternative_path = os.path.splitext(file_path)[0] + ext
+            alternative_path_dir = os.path.dirname(file_path)
+            alternative_path = os.path.join(alternative_path_dir, file_name+ext)
+
             if os.path.exists(alternative_path):
                 print(f"File {alternative_path} already exists extracted. Skipping download.")
-            return alternative_path
-
+                return alternative_path
 
         download_url(url, self.output_dir, filename=file_name)
         if unzip == True:
