@@ -1,7 +1,10 @@
 import requests
 import os
-from tqdm import tqdm
 import re
+from tqdm import tqdm
+from zipfile import ZipFile
+
+
 
 class TileDownloader:
     def __init__(self, url_template, output_dir):
@@ -12,7 +15,7 @@ class TileDownloader:
         self.output_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
 
-    def download_tile(self, file_name, **kwargs):
+    def download_tile(self, file_name, unzip=False, **kwargs):
         """
         Download a tile using any number of formatting parameters for the URL template.
         The downloaded file will be saved with a filename based on the kwargs.
@@ -21,6 +24,11 @@ class TileDownloader:
         if not self.output_dir:
             raise ValueError("Output directory is not set.")
 
+        url = self.url_template.format(**kwargs)
+        match = re.search(r"https?:\/\/.*\/(.*\.[^.]+$)", url)
+        if not match:
+            raise ValueError(f"Could not extract filename from URL: {url}")
+        file_name = match.group(1)
         file_path = os.path.join(self.output_dir, file_name)
 
         # quick check to see if the file is already there
@@ -28,8 +36,23 @@ class TileDownloader:
             print(f"File {file_path} already exists. Skipping download.")
             return file_path
 
-        url = self.url_template.format(**kwargs)
-        file_path = download_url(url, self.output_dir)
+        # check for alternative paths too
+        alternative_extensions = ['.TIF', '.LAZ']
+        for ext in alternative_extensions:
+            alternative_path = os.path.splitext(file_path)[0] + ext
+            if os.path.exists(alternative_path):
+                print(f"File {alternative_path} already exists extracted. Skipping download.")
+            return alternative_path
+
+
+        download_url(url, self.output_dir, filename=file_name)
+        if unzip == True:
+            # loading the temp.zip and creating a zip object 
+            with ZipFile(file_path, 'r') as z_object: 
+                z_object.extractall(self.output_dir)
+                z_object.close() 
+            os.remove(file_path)
+
         return file_path
 
 def download_url(url, directory, filename = None, chunk_size = 1048576):
@@ -48,8 +71,6 @@ def download_url(url, directory, filename = None, chunk_size = 1048576):
         with requests.get(url, stream=True, timeout=30, headers=headers) as response:
             response.raise_for_status()  # Raise error for bad status if applicable
             total = int(response.headers.get("content-length", 0))
-            if filename is None:
-                filename = re.split(r"https?:\/\/.*\/(.*\.[^.]+$)", url)[1] # regex to find the filename at the end, see capture group
             filepath = os.path.join(directory, filename)
 
             with open(filepath, "wb") as file, tqdm(desc=filename, total=total, unit="B", unit_scale=True) as bar:
