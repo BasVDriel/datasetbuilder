@@ -62,27 +62,34 @@ def tiling_test():
     utrecht_trees_gdf = pd.concat([utrecht_trees_bos_gdf, utrecht_trees_weg_gdf], axis=0)
     
     # test on a single tree sample for now
-    test_trees_gdf = utrecht_trees_gdf.iloc[[15_000]]
+    filtered_trees_gdf = utrecht_trees_gdf
 
     # Joint the points and polygons that contain a tree from the utrecht dataset
-    joined = gpd.sjoin(tile_polygons_gdf, test_trees_gdf, how="inner", predicate="contains")
+    joined = gpd.sjoin(tile_polygons_gdf, filtered_trees_gdf, how="inner", predicate="contains")
     result_tile_polygons = tile_polygons_gdf[tile_polygons_gdf.index.isin(joined.index)]
 
     # Also find the subtiles that contain a tree
-    joined_subtiles = gpd.sjoin(subtile_polygons_gdf, test_trees_gdf, how="inner", predicate="contains")
+    joined_subtiles = gpd.sjoin(subtile_polygons_gdf, filtered_trees_gdf, how="inner", predicate="contains")
     result_subtile_polygons = subtile_polygons_gdf[subtile_polygons_gdf.index.isin(joined_subtiles.index)]
 
     # aplot the result polygons for tiles and subtiles
-    # ax = result_tile_polygons.plot(color='blue', alpha=0.5, edgecolor='black', label="Tiles")
-    # result_subtile_polygons.plot(ax=ax, color='green', alpha=0.5, edgecolor='black', label="Subtiles")
-    # test_trees_gdf.plot(ax=ax)
-    # plt.show()
+    ax = result_tile_polygons.plot(color='blue', alpha=0.5, edgecolor='black', label="Tiles")
+    result_subtile_polygons.plot(ax=ax, color='green', alpha=0.5, edgecolor='black', label="Subtiles")
+    filtered_trees_gdf.plot(ax=ax, color="red", marker=".")
+    plt.show()
 
+    # check for user input
+    n_tiles = len(result_tile_polygons)
+    yn = input(f"Do you want to download {n_tiles} tiles? (y/n): ")
+    if yn.lower() != 'y':
+        print("Download cancelled.")
+        return
+    
     #download a dem file
     tile_dl = TileDownloader(url_template=ahn_dem_url, output_dir=dem_dir)
     for index, tile in result_tile_polygons.iterrows():
         tile_idx = tile["GT_AHN"]
-        tile_dl.download_tile(tile=tile_idx, file_name=tile_idx)
+        tile_dl.download_tile(tile=tile_idx, file_name=tile_idx, unzip=True)
 
 
 if __name__ == '__main__':

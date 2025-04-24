@@ -15,6 +15,22 @@ class TileDownloader:
         self.output_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
 
+    def unzip(self, file_path, file_name):
+        """
+        Unzip a file to the output directory, rename it with a filename and delete the original zip file.
+        """
+        return_path = None
+        with ZipFile(file_path, 'r') as zip_ref:
+            zip_ref.extractall(self.output_dir)
+            for file_ref in zip_ref.namelist():
+                original_extension = os.path.splitext(file_ref)[1]
+                new_file_path = os.path.join(self.output_dir, file_name + original_extension)
+                return_path = new_file_path
+                os.rename(os.path.join(self.output_dir, file_ref), new_file_path)  # rename the extracted file
+        # remove the original zip file
+        os.remove(file_path)
+        return return_path
+                
     def download_tile(self, file_name, unzip=False, **kwargs):
         """
         Download a tile using any number of formatting parameters for the URL template.
@@ -25,10 +41,15 @@ class TileDownloader:
             raise ValueError("Output directory is not set.")
 
         url = self.url_template.format(**kwargs)
-        file_path = os.path.join(self.output_dir, file_name)
+        match = re.search(r"https?:\/\/.*\/(.*\.[^.]+$)", url)
+        if not match:
+            raise ValueError(f"Could not extract filename from URL: {url}")
+        original_extension = "." + match.group(1).split(".")[-1]
+
+        file_path = os.path.join(self.output_dir, file_name+ original_extension)
 
         # check for alternative paths
-        alternative_extensions = ['.tif', '.laz', ".tiff", ".geojson", ".zip"]
+        alternative_extensions = ['.tif', '.laz', ".tiff", ".geojson"]
         alternative_extensions += [ext.upper() for ext in alternative_extensions]
         for ext in alternative_extensions:
             alternative_path_dir = os.path.dirname(file_path)
@@ -38,14 +59,10 @@ class TileDownloader:
                 print(f"File {alternative_path} already exists extracted. Skipping download.")
                 return alternative_path
 
-        download_url(url, self.output_dir, filename=file_name)
-        if unzip == True:
-            # loading the temp.zip and creating a zip object 
-            with ZipFile(file_path, 'r') as z_object: 
-                z_object.extractall(self.output_dir)
-                z_object.close() 
-            os.remove(file_path)
-
+        file_path = download_url(url, self.output_dir, filename=file_name + original_extension)
+        if unzip == True and file_path.endswith(".zip"):
+            file_path = self.unzip(file_path, file_name)
+            
         return file_path
 
 def download_url(url, directory, filename = None, chunk_size = 1048576):
@@ -70,8 +87,7 @@ def download_url(url, directory, filename = None, chunk_size = 1048576):
                 for data in response.iter_content(chunk_size=chunk_size):
                     size = file.write(data)
                     bar.update(size)
-        print(f"Downloaded to {filepath}")
-        return filename
+        return filepath
 
     except requests.exceptions.RequestException as e:
         print(f"Error downloading {url}: {e}")
