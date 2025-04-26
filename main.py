@@ -4,6 +4,8 @@ import os
 source_dir = "sources"
 dem_dir = os.path.join(source_dir, "dem")
 dtm_dir = os.path.join(source_dir, "dtm")
+ahn_dir = os.path.join(source_dir, "ahn_tiles")
+
 
 ahn_tile_fn = "ahn_subtiles.zip"
 ahn_subtile_fn = "ahn_tiles.zip"
@@ -18,6 +20,7 @@ ahn_subtile_url = "https://static.fwrite.org/2023/01/AHN_subunits_GeoTiles.zip"
 ahn_tile_url = "https://static.fwrite.org/2023/01/AHN_AHN_GeoTiles.zip"
 ahn_dem_url = "https://basisdata.nl/hwh-ahn/ahn4/02a_DTM_0.5m/M_{tile}.zip" # tile must be capitals
 ahn_dtm_url = "https://basisdata.nl/hwh-ahn/ahn4/03a_DSM_0.5m/R_{tile}.zip"
+ahn_pntcloud_url = "https://geotiles.citg.tudelft.nl/AHN5_T/{tile}.LAZ"
 orthomosaic_wmts_url = "https://service.pdok.nl/hwh/luchtfotorgb/wmts/v1_0?request=GetCapabilities&service=wmts"
 
 def get_sources():
@@ -46,10 +49,11 @@ def wmts_test():
     t2 = time.time()
     print(t2-t1)
 
-def tiling_test():
+def get_tiles():
     import pandas as pd
     import geopandas as gpd
     import matplotlib.pyplot as plt
+    from tqdm import tqdm
     from utils.tiles import TileDownloader
 
     ahn_tiles_path = "zip://" + ahn_tile_path
@@ -80,16 +84,24 @@ def tiling_test():
 
     # check for user input
     n_tiles = len(result_tile_polygons)
-    yn = input(f"Do you want to download {n_tiles} tiles? (y/n): ")
+    n_subtiles = len(result_subtile_polygons)
+    yn = input(f"Do you want to download {n_tiles} tiles and {n_subtiles} subtiles? (y/n): ")
     if yn.lower() != 'y':
         print("Download cancelled.")
         return
     
     #download a dem file
-    tile_dl = TileDownloader(url_template=ahn_dem_url, output_dir=dem_dir)
+    dem_tile_dl = TileDownloader(url_template=ahn_dem_url, output_dir=dem_dir)
     for index, tile in result_tile_polygons.iterrows():
         tile_idx = tile["GT_AHN"]
-        tile_dl.download_tile(tile=tile_idx, file_name=tile_idx, unzip=True)
+        dem_tile_dl.download_tile(tile=tile_idx, file_name=tile_idx, unzip=True)
+
+    #download ahn tiles
+    ahn_pntcloud_dl = TileDownloader(url_template=ahn_pntcloud_url, output_dir=ahn_dir)
+    for index, tile in result_subtile_polygons.iterrows():
+        tile_idx = tile["GT_AHNSUB"]
+        ahn_pntcloud_dl.download_tile(tile=tile_idx, file_name=tile_idx, unzip=True)
+
 
 
 if __name__ == '__main__':
