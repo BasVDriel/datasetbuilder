@@ -83,7 +83,7 @@ def download_url(url, directory, filename = None, chunk_size = 1048576):
             total = int(response.headers.get("content-length", 0))
             filepath = os.path.join(directory, filename)
 
-            with open(filepath, "wb") as file, tqdm(desc=filename, total=total, unit="B", unit_scale=True) as bar:
+            with open(filepath, "wb") as file, tqdm(desc=filepath, total=total, unit="B", unit_scale=True) as bar:
                 for data in response.iter_content(chunk_size=chunk_size):
                     size = file.write(data)
                     bar.update(size)
