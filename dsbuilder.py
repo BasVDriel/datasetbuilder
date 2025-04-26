@@ -26,38 +26,18 @@ class DSBuilder:
     def __init__(self):
         pass
 
-    def _delte_recursively(self, path, test=False):
-        """
-        Deletes a directory and only its contents
-        """
-        subdirs = [f.path for f in os.scandir(path) if f.is_dir()]
-        files = [f.path for f in os.scandir(path) if f.is_file()]
-        for subdir in subdirs:
-            self._delte_recursively(subdir, test=test)
-        for file in files:
-            if test:
-                print(f"Would delete: {file}")
-            else:
-                try:
-                    os.remove(file)
-                    print(f"Deleted: {file}")
-                except Exception as e:
-                    print(f"Error deleting {file}: {e}")
-        return 
-
     def clean_sources(self, path=source_dir, test=False):
         """
         Gives the option to delete the sources directory
         """
-        print(test)
+        from utils.tiles import delete_recursively
         if os.path.exists(path):
             print(f"Do you want to delete the contents of {path} recursively? (y/n): ")
             yn = input()
             if yn.lower() == 'y':
-                self._delte_recursively(path, test=True)
+                delete_recursively(path, test=True)
         else:
             print(f"Directory {path} does not exist. No action taken.")
-
 
     def get_sources(self):
         """
