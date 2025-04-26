@@ -121,7 +121,7 @@ class DSBuilder:
         print("\nDownloading dtm tiles")
         ahn_subtile_dl = TileDownloader(url_template=ahn_dtm_url, output_dir=dtm_dir)
         for index, tile in result_tile_polygons.iterrows():
-            tile_idx = tile["GT_AHNSUB"]
+            tile_idx = tile["GT_AHN"]
             ahn_subtile_dl.download_tile(tile=tile_idx, file_name=tile_idx, unzip=True)
 
         # download the point cloud tiles
