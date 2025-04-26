@@ -83,7 +83,7 @@ def download_url(url, directory, filename = None, chunk_size = 1048576):
             total = int(response.headers.get("content-length", 0))
             filepath = os.path.join(directory, filename)
 
-            with open(filepath, "wb") as file, tqdm(desc=filename, total=total, unit="B", unit_scale=True) as bar:
+            with open(filepath, "wb") as file, tqdm(desc=filepath, total=total, unit="B", unit_scale=True) as bar:
                 for data in response.iter_content(chunk_size=chunk_size):
                     size = file.write(data)
                     bar.update(size)
@@ -92,3 +92,22 @@ def download_url(url, directory, filename = None, chunk_size = 1048576):
     except requests.exceptions.RequestException as e:
         print(f"Error downloading {url}: {e}")
         return None
+    
+def delete_recursively( path, test=False):
+    """
+    Deletes a directory and only its contents
+    """
+    subdirs = [f.path for f in os.scandir(path) if f.is_dir()]
+    files = [f.path for f in os.scandir(path) if f.is_file()]
+    for subdir in subdirs:
+        delete_recursively(subdir, test=test)
+    for file in files:
+        if test:
+            print(f"Would delete: {file}")
+        else:
+            try:
+                os.remove(file)
+                print(f"Deleted: {file}")
+            except Exception as e:
+                print(f"Error deleting {file}: {e}")
+    return 
