@@ -65,7 +65,7 @@ class DSBuilder:
         t2 = time.time()
         print(t2-t1)
 
-    def get_tiles(self):
+    def get_tiles(self, plot=True):
         """
         Downloads the tiles and subtiles for the AHN data
         """
@@ -96,10 +96,11 @@ class DSBuilder:
         result_subtile_polygons = subtile_polygons_gdf[subtile_polygons_gdf.index.isin(joined_subtiles.index)]
 
         # aplot the result polygons for tiles and subtiles
-        ax = result_tile_polygons.plot(color='blue', alpha=0.5, edgecolor='black', label="Tiles")
-        result_subtile_polygons.plot(ax=ax, color='green', alpha=0.5, edgecolor='black', label="Subtiles")
-        filtered_trees_gdf.plot(ax=ax, color="red", marker=".")
-        plt.show()
+        if plot:
+            ax = result_tile_polygons.plot(color='blue', alpha=0.5, edgecolor='black', label="Tiles")
+            result_subtile_polygons.plot(ax=ax, color='green', alpha=0.5, edgecolor='black', label="Subtiles")
+            filtered_trees_gdf.plot(ax=ax, color="red", marker=".")
+            plt.show()
 
         # check for user input
         n_tiles = len(result_tile_polygons)
@@ -109,20 +110,26 @@ class DSBuilder:
             print("Download cancelled.")
             return
         
-        #download a dem file
+        #download a dem tiles
+        print("\nDownloading dem tiles")
         dem_tile_dl = TileDownloader(url_template=ahn_dem_url, output_dir=dem_dir)
         for index, tile in result_tile_polygons.iterrows():
             tile_idx = tile["GT_AHN"]
             dem_tile_dl.download_tile(tile=tile_idx, file_name=tile_idx, unzip=True)
 
-        # download ahn subtiles, but with master tqdm bar at the top
+        # download  dtm tiles
+        print("\nDownloading dtm tiles")
         ahn_subtile_dl = TileDownloader(url_template=ahn_dtm_url, output_dir=dtm_dir)
-        with tqdm(total=n_subtiles, desc="Downloading subtiles") as pbar:
-            for index, tile in result_subtile_polygons.iterrows():
-                tile_idx = tile["GT_AHNSUB"]
-                ahn_subtile_dl.download_tile(tile=tile_idx, file_name=tile_idx, unzip=True)
-                pbar.update(1)
+        for index, tile in result_tile_polygons.iterrows():
+            tile_idx = tile["GT_AHNSUB"]
+            ahn_subtile_dl.download_tile(tile=tile_idx, file_name=tile_idx, unzip=True)
 
+        # download the point cloud tiles
+        print("\nDownloading point cloud tiles")
+        ahn_pntcloud_dl = TileDownloader(url_template=ahn_pntcloud_url, output_dir=ahn_dir)
+        for index, tile in result_subtile_polygons.iterrows():
+            tile_idx = tile["GT_AHNSUB"]
+            ahn_pntcloud_dl.download_tile(tile=tile_idx, file_name=tile_idx, unzip=True)
 
 if __name__ == '__main__':
     fire.Fire(DSBuilder)
