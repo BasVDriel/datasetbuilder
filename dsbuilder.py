@@ -50,7 +50,7 @@ class DSBuilder:
         download_url(utrecht_trees_url, source_dir, filename=utrecht_trees_fn)
     
     def wmts_quality(self, name):
-        from utils.wtms import WMTSBuilder, WMTSMap
+        from utils.wtms import WMTSBuilder
         from sewar import vifp
         import matplotlib.pyplot as plt
         import time
@@ -58,12 +58,12 @@ class DSBuilder:
         time_taken = []
         image_paths = []
         vifp_values = []
-        for detail in range(10, 15):
+        for detail in range(10, 20):
             wmts_builder = WMTSBuilder(orthomosaic_wmts_url, detail=detail)
             maps = wmts_builder.build_maps()
             # Coordinates EPSG:28992
-            c1 = (85563.69,448598.50)
-            c2 = (c1[0] + 100, c1[1] - 100)
+            c1 = (86404.199,448706.490)
+            c2 = (c1[0] + 50, c1[1] - 50)
 
             path = f"temp/output_{detail}.tif"
             t1 = time.time()
@@ -80,11 +80,17 @@ class DSBuilder:
         for path in image_paths:
             print(path)
             image = plt.imread(path)
-            vifp = vifp(ref, image)
-            vifp_values.append(vifp)
+            vifp_val = vifp(ref, image)
+            vifp_values.append(vifp_val)
 
         # Plot the time taken and VIFP values
-        plt.plot(time_taken, vifp_values)
+        print(time_taken)
+        print(vifp_values)
+        # plot the quality level per point
+        plt.scatter(time_taken, vifp_values, label="quality vs time", marker="o")
+        for i, txt in enumerate(range(10, 20)):
+            plt.annotate(txt, (time_taken[i], vifp_values[i]), fontsize=8, ha='right', va='bottom')            
+        plt.legend()
         plt.xlabel('Time taken (s)')
         plt.ylabel('VIFP')
         plt.title('VIFP vs Time taken')

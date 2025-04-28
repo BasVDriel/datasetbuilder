@@ -5,6 +5,8 @@ from lxml import etree
 import numpy as np
 from io import BytesIO
 from PIL import Image
+import cv2
+
 
 class WMTSMap:
     """
@@ -47,12 +49,12 @@ class WMTSMap:
 
     def get_tile(self, cx, cy, tiles=False):
         """
-        Downloads and resizes a tile image from given coordinates or tile indices.
+        Downloads a tile image from given coordinates or tile indices (no resize).
 
-        Inputs: cx, cy (float or int), tiles (bool) the tiles variable controls whether the coordinates are in tile coords
+        Inputs: cx, cy (float or int), tiles (bool)
         Outputs: PIL.Image tile
         """
-        if tiles == False:
+        if not tiles:
             row, col = self.coord2tile(cx, cy)
         else:
             row, col = cx, cy
@@ -60,8 +62,7 @@ class WMTSMap:
         response = requests.get(url)
         if response.ok:
             image = Image.open(BytesIO(response.content))
-            image = image.resize((self.scaledown, self.scaledown), resample=Image.NEAREST)
-            return image
+            return image  # No resize here
         else:
             raise Exception(f"Failed to fetch tile at {url}")
         
@@ -97,82 +98,97 @@ class WMTSMap:
 
         return stitched_img
         
-    def save_image(self, stitched_img, top_left, bottom_right, path="output.tif"):
+    def crop_to_bbox(self, stitched_img, top_left, bottom_right):
         """
-        Saves a georeferenced stitched and clipped image as a GeoTIFF.
+        Crops the stitched image exactly to bounding box (in original resolution).
 
         Inputs:
             stitched_img (PIL.Image)
-            top_left (tuple of float) - top-left coordinate (x, y) of bounding box
-            bottom_right (tuple of float) - bottom-right coordinate (x, y) of bounding box
-            path (str) - output path
-        Outputs:
-            Saves the cropped GeoTIFF.
-        """
-        img_array = np.array(stitched_img)
+            top_left (tuple) - EPSG:28992 (x, y)
+            bottom_right (tuple) - EPSG:28992 (x, y)
 
-        # Get continuous tile coordinates (floats)
+        Returns:
+            Cropped PIL.Image, pixel offsets (for geotransform adjustment)
+        """
         xtl_float, ytl_float = self.coord2tile(*top_left, int_cast=False)
         xbr_float, ybr_float = self.coord2tile(*bottom_right, int_cast=False)
-
-        # Which full tiles were fetched?
         xtl_int, ytl_int = self.coord2tile(*top_left, int_cast=True)
         xbr_int, ybr_int = self.coord2tile(*bottom_right, int_cast=True)
 
-        # Size of one tile in output image pixels
         tile_size_pixels_x = stitched_img.size[0] / (xbr_int - xtl_int + 1)
         tile_size_pixels_y = stitched_img.size[1] / (ybr_int - ytl_int + 1)
 
-        # Compute pixel offsets inside stitched image
         left = (xtl_float - xtl_int) * tile_size_pixels_x
         top = (ytl_float - ytl_int) * tile_size_pixels_y
         right = (xbr_float - xtl_int) * tile_size_pixels_x
         bottom = (ybr_float - ytl_int) * tile_size_pixels_y
 
-        # Safety checks
-        left = max(0, min(stitched_img.size[0]-1, left))
-        right = max(0, min(stitched_img.size[0], right))
-        top = max(0, min(stitched_img.size[1]-1, top))
-        bottom = max(0, min(stitched_img.size[1], bottom))
-
-        # Make sure box is valid
-        if right <= left or bottom <= top:
-            raise ValueError(f"Invalid crop box: left={left}, right={right}, top={top}, bottom={bottom}")
-
-        # Crop
         cropped_img = stitched_img.crop((
-            int(round(left)),
-            int(round(top)),
-            int(round(right)),
-            int(round(bottom))
+            int(left),
+            int(top),
+            int(right),
+            int(bottom)
         ))
 
-        # Adjust geotransform
+        # return pixel offsets to update transform
+        return cropped_img, (left, top)
+
+
+    def save_image(self, img, top_left_coord, bottom_right_coord, path="output.tif"):
+        """
+        Crops the image to the bounding box and saves as a GeoTIFF with correct geotransform.
+
+        Inputs:
+            img (PIL.Image): The stitched image (PIL format).
+            top_left_coord (tuple): EPSG:28992 coordinate for the top-left corner (x, y).
+            bottom_right_coord (tuple): EPSG:28992 coordinate for the bottom-right corner (x, y).
+            path (str): The path to save the resulting GeoTIFF file.
+        """
+        # Crop the image to the bounding box
+        cropped_img, pixel_offset = self.crop_to_bbox(img, top_left_coord, bottom_right_coord)
+
+        # Convert the cropped image to a numpy array (channels first)
+        cropped_array = np.array(cropped_img).transpose((2, 0, 1))
+
+        # Calculate the adjusted geotransform
         scale_mpp = self.scale * self.pix2m
         tile_width_m = self.tile_width * scale_mpp
         tile_height_m = self.tile_height * scale_mpp
         global_top_left_x, global_top_left_y = self.top_left
 
-        # New origin
-        origin_x = global_top_left_x + xtl_float * tile_width_m
-        origin_y = global_top_left_y - ytl_float * tile_height_m
+        # Use the corrected coord2tile method to get float values
+        xtl_float, ytl_float = self.coord2tile(*top_left_coord, int_cast=False)
+        xtl_int, ytl_int = self.coord2tile(*top_left_coord, int_cast=True)
 
+        # Origin calculation based on the bounding box and pixel offsets
+        origin_x = global_top_left_x + xtl_float * tile_width_m 
+        origin_y = global_top_left_y - ytl_float * tile_height_m 
+
+        # Create the geotransform for the cropped image
         transform = rasterio.transform.from_origin(origin_x, origin_y, self.gsd, self.gsd)
 
-        # Save
-        cropped_array = np.array(cropped_img).transpose((2, 0, 1))
+        # resize image to the true size (bounding box size) devided by gsd
+        x_size = int((bottom_right_coord[0] - top_left_coord[0]) / self.gsd)
+        y_size = int((top_left_coord[1] - bottom_right_coord[1]) / self.gsd)
+
+        resized_img = cropped_img.resize((x_size, y_size), resample=Image.NEAREST)
+        resized_img = np.array(resized_img).transpose((2, 0, 1))  # (bands, y, x)
+
         profile = {
             'driver': 'GTiff',
-            'height': cropped_array.shape[1],
-            'width': cropped_array.shape[2],
-            'count': cropped_array.shape[0],
-            'dtype': cropped_array.dtype,
+            'count': resized_img.shape[0],
+            'dtype': 'uint8',
+            'width': resized_img.shape[2],
+            'height': resized_img.shape[1],
             'crs': 'EPSG:28992',
             'transform': transform
         }
 
+        # Save the cropped image as a GeoTIFF
         with rasterio.open(path, "w", **profile) as dst:
-            dst.write(cropped_array)
+            dst.write(resized_img)
+
+
 
 class WMTSBuilder:
     """
