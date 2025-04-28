@@ -49,21 +49,49 @@ class DSBuilder:
         download_url(ahn_tile_url, source_dir, filename=ahn_tile_fn)
         download_url(utrecht_trees_url, source_dir, filename=utrecht_trees_fn)
     
-    def wmts_test(self):
+    def wmts_quality(self, name):
         from utils.wtms import WMTSBuilder, WMTSMap
+        from sewar import vifp
+        import matplotlib.pyplot as plt
         import time
 
-        wmts_builder = WMTSBuilder(orthomosaic_wmts_url, detail=15)
-        maps = wmts_builder.build_maps()
-        # Coordinates EPSG:28992
-        c1 = (130821.89,457922.12)
-        c2 = (130925.86,457840.79)
+        time_taken = []
+        image_paths = []
+        vifp_values = []
+        for detail in range(10, 15):
+            wmts_builder = WMTSBuilder(orthomosaic_wmts_url, detail=detail)
+            maps = wmts_builder.build_maps()
+            # Coordinates EPSG:28992
+            c1 = (85563.69,448598.50)
+            c2 = (c1[0] + 100, c1[1] - 100)
 
-        t1 = time.time()
-        image = maps[0].get_image(c1, c2)
-        maps[0].save_image(image, c1)
-        t2 = time.time()
-        print(t2-t1)
+            path = f"temp/output_{detail}.tif"
+            t1 = time.time()
+            image = maps[0].get_image(c1, c2)
+            print(image)
+            maps[0].save_image(image, c1, c2, path=path)
+            t2 = time.time()
+
+            time_taken.append(t2 - t1)
+            image_paths.append(path)
+            print(f"Detail {detail} took {time_taken[-1]} seconds")
+        
+        ref = plt.imread(image_paths[-1])
+        for path in image_paths:
+            print(path)
+            image = plt.imread(path)
+            vifp = vifp(ref, image)
+            vifp_values.append(vifp)
+
+        # Plot the time taken and VIFP values
+        plt.plot(time_taken, vifp_values)
+        plt.xlabel('Time taken (s)')
+        plt.ylabel('VIFP')
+        plt.title('VIFP vs Time taken')
+        plt.show()
+        plt.imsave(name)
+        
+
 
     def get_tiles(self, plot=True):
         """

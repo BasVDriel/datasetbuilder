@@ -97,38 +97,82 @@ class WMTSMap:
 
         return stitched_img
         
-    def save_image(self, stitched_img, top_left, name="output.tif"):
+    def save_image(self, stitched_img, top_left, bottom_right, path="output.tif"):
         """
-        Saves a georeferenced stitched image as a GeoTIFF. 
+        Saves a georeferenced stitched and clipped image as a GeoTIFF.
 
-        Inputs: stitched_img (PIL.Image), top_left (tuple), name (str)
-        Outputs: Saved GeoTIFF file
+        Inputs:
+            stitched_img (PIL.Image)
+            top_left (tuple of float) - top-left coordinate (x, y) of bounding box
+            bottom_right (tuple of float) - bottom-right coordinate (x, y) of bounding box
+            path (str) - output path
+        Outputs:
+            Saves the cropped GeoTIFF.
         """
-        img_array = np.array(stitched_img).transpose((2, 0, 1))
-        xtl, ytl = self.coord2tile(*top_left)
+        img_array = np.array(stitched_img)
 
-        scale_mpp = self.scale * self.pix2m  
+        # Get continuous tile coordinates (floats)
+        xtl_float, ytl_float = self.coord2tile(*top_left, int_cast=False)
+        xbr_float, ybr_float = self.coord2tile(*bottom_right, int_cast=False)
+
+        # Which full tiles were fetched?
+        xtl_int, ytl_int = self.coord2tile(*top_left, int_cast=True)
+        xbr_int, ybr_int = self.coord2tile(*bottom_right, int_cast=True)
+
+        # Size of one tile in output image pixels
+        tile_size_pixels_x = stitched_img.size[0] / (xbr_int - xtl_int + 1)
+        tile_size_pixels_y = stitched_img.size[1] / (ybr_int - ytl_int + 1)
+
+        # Compute pixel offsets inside stitched image
+        left = (xtl_float - xtl_int) * tile_size_pixels_x
+        top = (ytl_float - ytl_int) * tile_size_pixels_y
+        right = (xbr_float - xtl_int) * tile_size_pixels_x
+        bottom = (ybr_float - ytl_int) * tile_size_pixels_y
+
+        # Safety checks
+        left = max(0, min(stitched_img.size[0]-1, left))
+        right = max(0, min(stitched_img.size[0], right))
+        top = max(0, min(stitched_img.size[1]-1, top))
+        bottom = max(0, min(stitched_img.size[1], bottom))
+
+        # Make sure box is valid
+        if right <= left or bottom <= top:
+            raise ValueError(f"Invalid crop box: left={left}, right={right}, top={top}, bottom={bottom}")
+
+        # Crop
+        cropped_img = stitched_img.crop((
+            int(round(left)),
+            int(round(top)),
+            int(round(right)),
+            int(round(bottom))
+        ))
+
+        # Adjust geotransform
+        scale_mpp = self.scale * self.pix2m
         tile_width_m = self.tile_width * scale_mpp
         tile_height_m = self.tile_height * scale_mpp
         global_top_left_x, global_top_left_y = self.top_left
-        origin_x = global_top_left_x + xtl * tile_width_m
-        origin_y = global_top_left_y - ytl * tile_height_m
+
+        # New origin
+        origin_x = global_top_left_x + xtl_float * tile_width_m
+        origin_y = global_top_left_y - ytl_float * tile_height_m
 
         transform = rasterio.transform.from_origin(origin_x, origin_y, self.gsd, self.gsd)
 
+        # Save
+        cropped_array = np.array(cropped_img).transpose((2, 0, 1))
         profile = {
             'driver': 'GTiff',
-            'height': img_array.shape[1],
-            'width': img_array.shape[2],
-            'count': img_array.shape[0],
-            'dtype': img_array.dtype,
+            'height': cropped_array.shape[1],
+            'width': cropped_array.shape[2],
+            'count': cropped_array.shape[0],
+            'dtype': cropped_array.dtype,
             'crs': 'EPSG:28992',
             'transform': transform
         }
-    
-        with rasterio.open(name, "w", **profile) as dst:
-            dst.write(img_array)
 
+        with rasterio.open(path, "w", **profile) as dst:
+            dst.write(cropped_array)
 
 class WMTSBuilder:
     """

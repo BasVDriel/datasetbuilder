@@ -2,4 +2,6 @@
 *.tif
 **/__pycache__/
 sources/*
+temp/*
 test.ipynb
+*.png
