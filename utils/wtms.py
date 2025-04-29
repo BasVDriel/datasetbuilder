@@ -147,9 +147,6 @@ class WMTSMap:
         # Crop the image to the bounding box
         cropped_img, pixel_offset = self.crop_to_bbox(img, top_left_coord, bottom_right_coord)
 
-        # Convert the cropped image to a numpy array (channels first)
-        cropped_array = np.array(cropped_img).transpose((2, 0, 1))
-
         # Calculate the adjusted geotransform
         scale_mpp = self.scale * self.pix2m
         tile_width_m = self.tile_width * scale_mpp
@@ -158,7 +155,6 @@ class WMTSMap:
 
         # Use the corrected coord2tile method to get float values
         xtl_float, ytl_float = self.coord2tile(*top_left_coord, int_cast=False)
-        xtl_int, ytl_int = self.coord2tile(*top_left_coord, int_cast=True)
 
         # Origin calculation based on the bounding box and pixel offsets
         origin_x = global_top_left_x + xtl_float * tile_width_m 
