@@ -4,8 +4,8 @@ import rasterio
 from lxml import etree
 import numpy as np
 from io import BytesIO
+from concurrent.futures import ThreadPoolExecutor
 from PIL import Image
-import cv2
 
 
 class WMTSMap:
@@ -65,13 +65,15 @@ class WMTSMap:
             return image  # No resize here
         else:
             raise Exception(f"Failed to fetch tile at {url}")
-        
+
     def get_image(self, c1, c2):
         """
-        Fetches and stitches all tiles between two coordinates.
+        Fetches and stitches all tiles between two coordinates using multithreading.
 
-        Inputs: c1, c2 (tuple of float) coordinates
-        Outputs: PIL.Image of combined area
+        Inputs:
+            c1, c2 (tuple of float) coordinates
+        Outputs:
+            PIL.Image of combined area
         """
         x1, y1 = c1
         x2, y2 = c2
@@ -84,7 +86,14 @@ class WMTSMap:
         x_size = xt2 - xt1 + 1
         y_size = yt2 - yt1 + 1
 
-        tiles = [[self.get_tile(x, y, tiles=True) for x in range(xt1, xt2 + 1)] for y in range(yt1, yt2 + 1)]
+        coords = [(x, y) for y in range(yt1, yt2 + 1) for x in range(xt1, xt2 + 1)]
+
+        # Use threads for I/O-bound tile downloading
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            tiles_flat = list(executor.map(lambda xy: self.get_tile(*xy, tiles=True), coords))
+
+        # Convert flat tile list back to 2D grid (rows of tiles)
+        tiles = [tiles_flat[i * x_size:(i + 1) * x_size] for i in range(y_size)]
 
         im_tile_width, im_tile_height = tiles[0][0].size
         im_width = im_tile_width * x_size
@@ -97,6 +106,7 @@ class WMTSMap:
                 stitched_img.paste(tile, (col_idx * im_tile_width, row_idx * im_tile_height))
 
         return stitched_img
+
         
     def crop_to_bbox(self, stitched_img, top_left, bottom_right):
         """

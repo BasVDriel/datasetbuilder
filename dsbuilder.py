@@ -49,17 +49,17 @@ class DSBuilder:
         download_url(ahn_tile_url, source_dir, filename=ahn_tile_fn)
         download_url(utrecht_trees_url, source_dir, filename=utrecht_trees_fn)
     
-    def wmts_quality(self, exp_name, download=False):
+    def wmts_quality(self, exp_name, download=False, plot=False):
         from utils.wtms import WMTSBuilder
         from tqdm import tqdm
         from sewar import vifp
         import matplotlib.pyplot as plt
         import time
-        import re
-        import os
+        import pandas as pd
 
         exp_entries = []
         detail_range = range(10, 20)
+        csv_file = f"vif_experiments.csv"
 
         # Download images if specified
         if download:
@@ -67,8 +67,9 @@ class DSBuilder:
                 wmts_builder = WMTSBuilder(orthomosaic_wmts_url, detail=detail)
                 maps = wmts_builder.build_maps()
                 # Coordinates EPSG:28992
-                c1 = (86404.199, 448706.490)
-                c2 = (c1[0] + 50, c1[1] - 50)
+                c1 = (127677.90,431678.96)
+                test_size = 25
+                c2 = (c1[0] + test_size, c1[1] - test_size)
 
                 t1 = time.time()
                 image = maps[0].get_image(c1, c2)
@@ -80,46 +81,54 @@ class DSBuilder:
                 exp_entries.append((int(tdiff * 1000), detail, path))  # Store time in ms, detail, and path
                 tqdm.write(f"Detail {detail} took {int(1000 * tdiff)} ms")
 
-        # Load existing images for the specified exp_name
-        image_paths = os.listdir("temp")
-        for image_name in image_paths:
-            image_path = os.path.join("temp", image_name)
-            groups = re.findall(exp_name + r"_(\d\d)_(\d+).tif", image_path)
-            if groups:
-                detail_level, time_ms = groups[0]
-                exp_entries.append((int(time_ms), int(detail_level), image_path))
+            # Sort by detail level
+            exp_entries = sorted(exp_entries, key=lambda entry: entry[1])
 
-        # Sort by detail level
-        exp_entries = sorted(exp_entries, key=lambda entry: entry[1])
+            # Use the image of max detail for reference
+            ref_image_path = exp_entries[-1][2]  # Path of the highest detail image
+            ref_image = plt.imread(ref_image_path)
 
-        # Use the image of max detail for reference
-        ref_image_path = exp_entries[-1][2]  # Path of the highest detail image
-        ref_image = plt.imread(ref_image_path)
-        
-        # Calculate VIFP values for each entry
-        vifp_values = []
-        for time_ms, detail, path in tqdm(exp_entries, desc="Computing VIF"):
-            tqdm.write(f"Processing {path}")
-            image = plt.imread(path)
-            vifp_val = vifp(ref_image, image)
-            vifp_values.append(vifp_val)
+            # Calculate VIFP values for each entry
+            vifp_values = []
+            for time_ms, detail, path in tqdm(exp_entries, desc="Computing VIF"):
+                tqdm.write(f"Processing {path}")
+                image = plt.imread(path)
+                vifp_val = vifp(ref_image, image)
+                vifp_values.append(vifp_val)
 
-        # Plotting the results
+                # Append data to CSV
+                with open(csv_file, 'a') as f:
+                    f.write(f"{time_ms},{vifp_val},{detail},{test_size},{exp_name}\n")
 
-        time_values = [entry[0]/1000 for entry in exp_entries] # because miliseconds
-        detail_values = [entry[1] for entry in exp_entries]
-        plt.figure(figsize=(6, 6))
-        plt.scatter(time_values, vifp_values, marker="o")
-        for n, detail_val in enumerate(detail_values):
-            plt.annotate(text=str(detail_val), xy=(time_values[n], vifp_values[n]))
-        plt.xlabel("Time (s)")
-        plt.ylabel("VIFP Quality")
-        plt.xscale("log")
-        plt.title(f"WMTS Quality for {exp_name}")
-        plt.grid(which='both')
-        plt.savefig(f"{exp_name}_quality_plot.png")  # Save the plot
-        plt.show()
+        # If plotting is enabled, load the CSV and plot the results
+        if plot:
+            df = pd.read_csv(csv_file, header=None)
+            df.columns = ["Time (ms)", "VIFP Quality", "Detail Level", "Image Size (m)", "Experiment"]
+            df = df[df["Experiment"] == exp_name]  # Filter by experiment name
+            time_values = df["Time (ms)"].to_numpy() / 1000  # Convert milliseconds to seconds
+            vifp_values = df["VIFP Quality"].to_numpy()
+            detail_levels = df["Detail Level"].to_numpy()
 
+            # Create a colormap
+            cmap = plt.get_cmap("viridis", len(detail_range))  # Use a colormap with discrete colors
+            plt.scatter(time_values, vifp_values, c=detail_levels, cmap=cmap, marker="o")
+
+            # Create a legend
+            handles = []
+            for i in range(len(detail_range)):
+                handles.append(plt.Line2D([0], [0], marker='o', color='w', label=str(detail_range.start + i),
+                    markerfacecolor=cmap(i), markersize=10))
+            plt.legend(handles=handles, title="Detail Level", bbox_to_anchor=(1.05, 1), loc='upper left')
+
+            plt.tight_layout(pad=3)
+            plt.xlim(0.05,100)
+            plt.xlabel("Time (s)")
+            plt.ylabel("VIFP Quality")
+            plt.xscale("log")
+            plt.title(f"WMTS Quality for {exp_name}")
+            plt.grid(which='both')
+            plt.savefig(f"{exp_name}_quality_plot.png")  
+            plt.show()
 
 
     def get_tiles(self, plot=True):

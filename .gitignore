@@ -5,3 +5,4 @@ sources/*
 temp/*
 test.ipynb
 *.png
+*.csv
