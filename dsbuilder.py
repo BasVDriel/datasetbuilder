@@ -131,6 +131,74 @@ class DSBuilder:
             plt.show()
 
 
+    def get_sentinel(self):
+        from pystac_client import Client
+        import planetary_computer
+        from odc.stac import load
+        import xarray as xr
+        import matplotlib.pyplot as plt
+        from pyproj import Transformer  # ✅ Missing import
+
+        # Define the bounding box in EPSG:28992 (RD New)
+        x, y = 92762.52, 420165.06
+        buffer = 50
+        bbox_rd = (x - buffer, y - buffer, x + buffer, y + buffer)
+
+        # Convert RD New (EPSG:28992) to WGS84 (EPSG:4326)
+        transformer = Transformer.from_crs("EPSG:28992", "EPSG:4326", always_xy=True)
+        min_lon, min_lat = transformer.transform(bbox_rd[0], bbox_rd[1])
+        max_lon, max_lat = transformer.transform(bbox_rd[2], bbox_rd[3])
+        bounds = (min_lon, min_lat, max_lon, max_lat)
+
+        catalog = Client.open("https://planetarycomputer.microsoft.com/api/stac/v1")
+
+        search = catalog.search(
+            collections=["sentinel-2-l2a"],
+            bbox=bounds,
+            datetime="2023-06-01/2023-08-30",
+            query={"eo:cloud_cover": {"lt": 5}},
+            max_items=5
+        )
+
+        items = list(search.get_items())
+        print(f"Found {len(items)} items")
+
+        # Sign items
+        signed_items = [planetary_computer.sign(item) for item in items]
+
+        # Load bands
+        all_bands = [
+            "B01", "B02", "B03", "B04", "B05", "B06", "B07", "B08", "B8A",
+            "B09", "B11", "B12", "SCL", "AOT", "WVP"
+        ]
+
+        ds = load(
+            signed_items,
+            bands=all_bands,
+            bbox=bounds,
+            crs="EPSG:32631",  # ✅ You may need to adjust this based on location
+            resolution=10,
+            chunks={},
+            groupby="solar_day",
+        )
+
+        # Visualize RGB
+        ds_one = ds.isel(time=0)
+        r = ds_one["B04"]
+        g = ds_one["B03"]
+        b = ds_one["B02"]
+
+        rgb = xr.concat([r, g, b], dim="band").transpose("y", "x", "band")
+        rgb /= rgb.max()
+
+        plt.figure(figsize=(10, 10))
+        plt.imshow(rgb)
+        plt.axis("off")
+        plt.title("Sentinel-2 RGB (B04-B03-B02)")
+        plt.show()
+
+        
+
     def get_tiles(self, plot=True):
         """
         Downloads the tiles and subtiles for the AHN data
