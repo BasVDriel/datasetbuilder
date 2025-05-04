@@ -21,6 +21,7 @@ ahn_dem_url = "https://basisdata.nl/hwh-ahn/ahn4/02a_DTM_0.5m/M_{tile}.zip"
 ahn_dtm_url = "https://basisdata.nl/hwh-ahn/ahn4/03a_DSM_0.5m/R_{tile}.zip"
 ahn_pntcloud_url = "https://geotiles.citg.tudelft.nl/AHN5_T/{tile}.LAZ"
 orthomosaic_wmts_url = "https://service.pdok.nl/hwh/luchtfotorgb/wmts/v1_0?request=GetCapabilities&service=wmts"
+sentinel2_url = "https://planetarycomputer.microsoft.com/api/stac/v1"
 
 class DSBuilder:
     def __init__(self):
@@ -137,7 +138,7 @@ class DSBuilder:
         from odc.stac import load
         import xarray as xr
         import matplotlib.pyplot as plt
-        from pyproj import Transformer  # ✅ Missing import
+        from pyproj import Transformer 
 
         # Define the bounding box in EPSG:28992 (RD New)
         x, y = 92762.52, 420165.06
@@ -176,7 +177,7 @@ class DSBuilder:
             signed_items,
             bands=all_bands,
             bbox=bounds,
-            crs="EPSG:32631",  # ✅ You may need to adjust this based on location
+            crs="EPSG:28992",  
             resolution=10,
             chunks={},
             groupby="solar_day",
