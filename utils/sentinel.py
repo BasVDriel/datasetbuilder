@@ -2,10 +2,12 @@ from pystac_client import Client
 import planetary_computer as pc
 from odc.stac import load
 from pyproj import Transformer 
+import warnings
+from rasterio.errors import NotGeoreferencedWarning
 import os
 
 
-class SentinelMap:
+class SentinelDownloader:
     def __init__(self, url, sentinel_dir, crs="EPSG:28992"):
         self.url = url
         self.catalog = Client.open(self.url)
@@ -35,11 +37,11 @@ class SentinelMap:
             "B09", "B11", "B12", "SCL", "AOT", "WVP"
         ]
 
-        ds = load(
+        ds = load(  # your existing load() call
             signed_items,
             bands=all_bands,
             bbox=bounds,
-            crs=self.crs,  
+            crs=self.crs,
             resolution=10,
             chunks={},
             groupby="solar_day",
@@ -47,10 +49,18 @@ class SentinelMap:
 
         return ds
     
-    def get_sentinel_tile(self, tile_bounds, tile_name, cloud_cover=10, start_date="2015-01-01", end_date="2025-01-01"):
+    def download_tile(self, tile_bounds, tile_name, cloud_cover=10, start_date="2015-01-01", end_date="2025-01-01"):
+        warnings.filterwarnings("ignore", category=NotGeoreferencedWarning)
+        if not self.dir:
+            raise ValueError("Output directory is not set.")
+        
+        output_path = os.path.join(self.dir, f"{tile_name}.nc")
+        if os.path.exists(output_path):
+            print(f"File {output_path} already exists extracted. Skipping download.")
+            return output_path
 
-        ds = self.get_sentinel_data(bbox=tile_bounds, loud_cover=cloud_cover, start_date=start_date, end_date=end_date)
-        # Save the xarray dataset to a NetCDF file
-        output_file = os.path.join(self.dir, f"{tile_name}.nc")
-        ds.to_netcdf(output_file, format='NETCDF4')
-        print(f"Saved dataset to {output_file}")
+        print(f"Downloading {output_path}")
+        ds = self.get_sentinel_data(bbox=tile_bounds, cloud_cover=cloud_cover, start_date=start_date, end_date=end_date)
+        ds.to_netcdf(output_path, format='NETCDF4')
+
+        return output_path

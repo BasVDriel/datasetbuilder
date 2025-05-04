@@ -5,6 +5,7 @@ source_dir = "sources"
 dem_dir = os.path.join(source_dir, "dem")
 dtm_dir = os.path.join(source_dir, "dtm")
 ahn_dir = os.path.join(source_dir, "ahn_tiles")
+sentinel_dir = os.path.join(source_dir, "sentinel")
 
 ahn_tile_fn = "ahn_subtiles.zip"
 ahn_subtile_fn = "ahn_tiles.zip"
@@ -130,77 +131,9 @@ class DSBuilder:
             plt.grid(which='both')
             plt.savefig(f"{exp_name}_quality_plot.png")  
             plt.show()
+  
 
-
-    def get_sentinel(self):
-        from pystac_client import Client
-        import planetary_computer
-        from odc.stac import load
-        import xarray as xr
-        import matplotlib.pyplot as plt
-        from pyproj import Transformer 
-
-        # Define the bounding box in EPSG:28992 (RD New)
-        x, y = 92762.52, 420165.06
-        buffer = 50
-        bbox_rd = (x - buffer, y - buffer, x + buffer, y + buffer)
-
-        # Convert RD New (EPSG:28992) to WGS84 (EPSG:4326)
-        transformer = Transformer.from_crs("EPSG:28992", "EPSG:4326", always_xy=True)
-        min_lon, min_lat = transformer.transform(bbox_rd[0], bbox_rd[1])
-        max_lon, max_lat = transformer.transform(bbox_rd[2], bbox_rd[3])
-        bounds = (min_lon, min_lat, max_lon, max_lat)
-
-        catalog = Client.open("https://planetarycomputer.microsoft.com/api/stac/v1")
-
-        search = catalog.search(
-            collections=["sentinel-2-l2a"],
-            bbox=bounds,
-            datetime="2023-06-01/2023-08-30",
-            query={"eo:cloud_cover": {"lt": 5}},
-            max_items=5
-        )
-
-        items = list(search.get_items())
-        print(f"Found {len(items)} items")
-
-        # Sign items
-        signed_items = [planetary_computer.sign(item) for item in items]
-
-        # Load bands
-        all_bands = [
-            "B01", "B02", "B03", "B04", "B05", "B06", "B07", "B08", "B8A",
-            "B09", "B11", "B12", "SCL", "AOT", "WVP"
-        ]
-
-        ds = load(
-            signed_items,
-            bands=all_bands,
-            bbox=bounds,
-            crs="EPSG:28992",  
-            resolution=10,
-            chunks={},
-            groupby="solar_day",
-        )
-
-        # Visualize RGB
-        ds_one = ds.isel(time=0)
-        r = ds_one["B04"]
-        g = ds_one["B03"]
-        b = ds_one["B02"]
-
-        rgb = xr.concat([r, g, b], dim="band").transpose("y", "x", "band")
-        rgb /= rgb.max()
-
-        plt.figure(figsize=(10, 10))
-        plt.imshow(rgb)
-        plt.axis("off")
-        plt.title("Sentinel-2 RGB (B04-B03-B02)")
-        plt.show()
-
-        
-
-    def get_tiles(self, plot=True):
+    def get_tiles(self, plot=True, tree_idx=None):
         """
         Downloads the tiles and subtiles for the AHN data
         """
@@ -208,6 +141,7 @@ class DSBuilder:
         import geopandas as gpd
         import matplotlib.pyplot as plt
         from utils.tiles import TileDownloader
+        from utils.sentinel import SentinelDownloader
 
         ahn_tiles_path = "zip://" + ahn_tile_path
         tile_polygons_gdf = gpd.read_file(ahn_tiles_path)
@@ -219,7 +153,10 @@ class DSBuilder:
         utrecht_trees_gdf = pd.concat([utrecht_trees_bos_gdf, utrecht_trees_weg_gdf], axis=0)
         
         # test on a single tree sample for now
-        filtered_trees_gdf = utrecht_trees_gdf
+        if tree_idx:
+            filtered_trees_gdf = utrecht_trees_gdf.iloc[[tree_idx]]
+        else:
+            filtered_trees_gdf = utrecht_trees_gdf
 
         # Joint the points and polygons that contain a tree from the utrecht dataset
         joined = gpd.sjoin(tile_polygons_gdf, filtered_trees_gdf, how="inner", predicate="contains")
@@ -264,6 +201,14 @@ class DSBuilder:
         for index, tile in result_subtile_polygons.iterrows():
             tile_idx = tile["GT_AHNSUB"]
             ahn_pntcloud_dl.download_tile(tile=tile_idx, file_name=tile_idx, unzip=True)
+
+        # download sentinel 2 datacubes as tiles
+        print("\nDownloading Sentinel 2 tiles")
+        sentinel_dl = SentinelDownloader(url=sentinel2_url, sentinel_dir=sentinel_dir)
+        for index, tile in result_subtile_polygons.iterrows():
+            tile_idx = tile["GT_AHNSUB"]
+            tile_bounds = tile["geometry"].bounds
+            sentinel_dl.download_tile(tile_bounds=tile_bounds, tile_name=tile_idx)
 
 if __name__ == "__main__":
     fire.Fire(DSBuilder)
