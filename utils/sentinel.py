@@ -6,7 +6,6 @@ import warnings
 from rasterio.errors import NotGeoreferencedWarning
 import os
 
-
 class SentinelDownloader:
     def __init__(self, url, sentinel_dir, crs="EPSG:28992"):
         self.url = url
@@ -58,9 +57,9 @@ class SentinelDownloader:
         if os.path.exists(output_path):
             print(f"File {output_path} already exists extracted. Skipping download.")
             return output_path
-
-        print(f"Downloading {output_path}")
-        ds = self.get_sentinel_data(bbox=tile_bounds, cloud_cover=cloud_cover, start_date=start_date, end_date=end_date)
-        ds.to_netcdf(output_path, format='NETCDF4')
+        else:
+            print(f"Downloading {output_path}")
+            ds = self.get_sentinel_data(bbox=tile_bounds, cloud_cover=cloud_cover, start_date=start_date, end_date=end_date)
+            ds.to_netcdf(output_path, format='NETCDF4')
 
         return output_path
