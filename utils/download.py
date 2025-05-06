@@ -2,6 +2,8 @@ import logging
 import os
 import re
 import time
+import csv
+import pandas as pd
 import warnings
 from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
@@ -23,6 +25,48 @@ class Downloader:
     def __init__(self, output_dir):
         self.output_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
+        output_dir_csv = os.path.basename(f"{self.output_dir}.csv")
+        self.tracker_path = os.path.join(self.output_dir, output_dir_csv)
+        self.file_inventory()
+
+    def file_inventory(self):
+        """
+        Reads the CSV file and stores the file information in a DataFrame.
+        """
+        if not os.path.exists(self.tracker_path):
+            self.file_data = pd.DataFrame(columns=['file_path', 'status'])
+            self.file_data.to_csv(self.tracker_path, index=False)
+        else:
+            self.file_data = pd.read_csv(self.tracker_path)
+
+    def file_exists(self, filepath):
+        """
+        Checks if the given file path exists in the DataFrame.
+        """
+        return filepath in self.file_data['file_path'].values
+    
+    @staticmethod
+    def download_wrapper(func):
+        def wrapped(*args, **kwargs):
+            try:
+                path = func(*args, **kwargs)
+                status = True
+            except Exception as e:
+                print(e)
+                status = False
+            
+            args[0].update_file_tracker(path, status)
+            return path
+        return wrapped
+
+    def update_file_tracker(self, file_path, status):
+        if self.file_exists(file_path):
+            self.file_data.loc[self.file_data['file_path'] == file_path, ['status']] = [status]
+        else:
+            new_row = {'file_path': file_path, 'status': status}
+            self.file_data = pd.concat([self.file_data, pd.DataFrame([new_row])], ignore_index=True)
+
+        self.file_data.to_csv(self.tracker_path, index=False)
 
     def unzip(self, file_path, file_name):
         """
@@ -39,6 +83,13 @@ class Downloader:
         # remove the original zip file
         os.remove(file_path)
         return return_path
+
+
+
+
+
+
+
 
 class SentinelDownloader:
     def __init__(self, url, output_dir, crs="EPSG:28992"):
@@ -82,6 +133,7 @@ class SentinelDownloader:
 
         return ds
     
+    @Downloader.download_wrapper
     def download_tile(self, tile_bounds, tile_name, cloud_cover=10, start_date="2015-01-01", end_date="2025-01-01"):
         warnings.filterwarnings("ignore", category=NotGeoreferencedWarning)
         if not self.output_dir:
@@ -90,7 +142,6 @@ class SentinelDownloader:
         output_path = os.path.join(self.output_dir, f"{tile_name}.nc")
         if os.path.exists(output_path):
             print(f"File {output_path} already exists extracted. Skipping download.")
-            return output_path
         else:
             print(f"Downloading {output_path}")
             ds = self.get_sentinel_data(bbox=tile_bounds, cloud_cover=cloud_cover, start_date=start_date, end_date=end_date)
@@ -98,6 +149,8 @@ class SentinelDownloader:
 
         return output_path
     
+
+
 
 
 class TileDownloader(Downloader):
@@ -108,7 +161,7 @@ class TileDownloader(Downloader):
         super().__init__(output_dir)
         self.url_template = url_template
 
-                
+    @Downloader.download_wrapper      
     def download_tile(self, file_name, unzip=False, **kwargs):
         """
         Download a tile using any number of formatting parameters for the URL template.
@@ -124,7 +177,7 @@ class TileDownloader(Downloader):
             raise ValueError(f"Could not extract filename from URL: {url}")
         original_extension = "." + match.group(1).split(".")[-1]
 
-        file_path = os.path.join(self.output_dir, file_name+ original_extension)
+        file_path = os.path.join(self.output_dir, file_name+original_extension)
 
         # check for alternative paths
         alternative_extensions = ['.tif', '.laz', ".tiff", ".geojson"]
@@ -138,10 +191,12 @@ class TileDownloader(Downloader):
                 return alternative_path
 
         file_path = download_url(url, self.output_dir, filename=file_name + original_extension)
+
         if unzip == True and file_path.endswith(".zip"):
             file_path = self.unzip(file_path, file_name)
-            
+
         return file_path
+            
 
 def download_url(url, directory, filename = None, chunk_size = 1048576):
     """
@@ -154,22 +209,17 @@ def download_url(url, directory, filename = None, chunk_size = 1048576):
         "Accept-Encoding": "identity",
         "Connection": "Keep-Alive"
     }
+    with requests.get(url, stream=True, timeout=30, headers=headers) as response:
+        response.raise_for_status()  # Raise error for bad status if applicable
+        total = int(response.headers.get("content-length", 0))
+        filepath = os.path.join(directory, filename)
 
-    try:
-        with requests.get(url, stream=True, timeout=30, headers=headers) as response:
-            response.raise_for_status()  # Raise error for bad status if applicable
-            total = int(response.headers.get("content-length", 0))
-            filepath = os.path.join(directory, filename)
+        with open(filepath, "wb") as file, tqdm(desc=filepath, total=total, unit="B", unit_scale=True) as bar:
+            for data in response.iter_content(chunk_size=chunk_size):
+                size = file.write(data)
+                bar.update(size)
+    return filepath
 
-            with open(filepath, "wb") as file, tqdm(desc=filepath, total=total, unit="B", unit_scale=True) as bar:
-                for data in response.iter_content(chunk_size=chunk_size):
-                    size = file.write(data)
-                    bar.update(size)
-        return filepath
-
-    except requests.exceptions.RequestException as e:
-        print(f"Error downloading {url}: {e}")
-        return None
     
 def delete_recursively(path, test=False):
     """
@@ -189,6 +239,13 @@ def delete_recursively(path, test=False):
             except Exception as e:
                 print(f"Error deleting {file}: {e}")
     return 
+
+
+
+
+
+
+
 
 class WMTSMap(Downloader):
     """
@@ -336,7 +393,7 @@ class WMTSMap(Downloader):
         # return pixel offsets to update transform
         return cropped_img, (left, top)
 
-
+    @Downloader.download_wrapper
     def save_image(self, top_left_coord, bottom_right_coord, file_name="output.tif", img=False):
         """
         Crops the image to the bounding box and saves as a GeoTIFF with correct geotransform.
