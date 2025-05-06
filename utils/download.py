@@ -1,14 +1,196 @@
-import requests
+import logging
+import os
 import re
-import rasterio 
-from lxml import etree
-import numpy as np
-from io import BytesIO
+import time
+import warnings
 from concurrent.futures import ThreadPoolExecutor
+from io import BytesIO
+from zipfile import ZipFile
+import numpy as np
+import planetary_computer as pc
+import requests
+from lxml import etree
 from PIL import Image
+import rasterio
+from rasterio.errors import NotGeoreferencedWarning
+from tqdm import tqdm
+from odc.stac import load
+from pystac_client import Client
+from pyproj import Transformer
 
 
-class WMTSMap:
+class Downloader:
+    def __init__(self, output_dir):
+        self.output_dir = output_dir
+        os.makedirs(self.output_dir, exist_ok=True)
+
+    def unzip(self, file_path, file_name):
+        """
+        Unzip a file to the output directory, rename it with a filename and delete the original zip file.
+        """
+        return_path = None
+        with ZipFile(file_path, 'r') as zip_ref:
+            zip_ref.extractall(self.output_dir)
+            for file_ref in zip_ref.namelist():
+                original_extension = os.path.splitext(file_ref)[1]
+                new_file_path = os.path.join(self.output_dir, file_name + original_extension)
+                return_path = new_file_path
+                os.rename(os.path.join(self.output_dir, file_ref), new_file_path)  # rename the extracted file
+        # remove the original zip file
+        os.remove(file_path)
+        return return_path
+
+class SentinelDownloader:
+    def __init__(self, url, output_dir, crs="EPSG:28992"):
+        self.url = url
+        self.catalog = Client.open(self.url)
+        self.crs = crs
+        self.output_dir = output_dir
+
+    def get_sentinel_data(self, bbox, cloud_cover=10, start_date="2015-01-01", end_date="2025-01-01"):
+        time_of_interest = f"{start_date}/{end_date}"
+
+        transformer = Transformer.from_crs(self.crs, "EPSG:4326", always_xy=True)
+        min_lon, min_lat = transformer.transform(bbox[0], bbox[1])
+        max_lon, max_lat = transformer.transform(bbox[2], bbox[3])
+        bounds = (min_lon, min_lat, max_lon, max_lat)
+
+        search = self.catalog.search(
+            collections=["sentinel-2-l2a"],
+            bbox=bounds,
+            query={"eo:cloud_cover": {"lt": cloud_cover}},
+            datetime=time_of_interest,
+        )
+    
+        signed_items = [pc.sign(item) for item in search.items()]
+
+        # Load bands
+        all_bands = [
+            "B01", "B02", "B03", "B04", "B05", "B06", "B07", "B08", "B8A",
+            "B09", "B11", "B12", "SCL", "AOT", "WVP"
+        ]
+
+        ds = load(  # your existing load() call
+            signed_items,
+            bands=all_bands,
+            bbox=bounds,
+            crs=self.crs,
+            resolution=10,
+            chunks={},
+            groupby="solar_day",
+        ).sortby("time")
+
+        return ds
+    
+    def download_tile(self, tile_bounds, tile_name, cloud_cover=10, start_date="2015-01-01", end_date="2025-01-01"):
+        warnings.filterwarnings("ignore", category=NotGeoreferencedWarning)
+        if not self.output_dir:
+            raise ValueError("Output directory is not set.")
+        
+        output_path = os.path.join(self.output_dir, f"{tile_name}.nc")
+        if os.path.exists(output_path):
+            print(f"File {output_path} already exists extracted. Skipping download.")
+            return output_path
+        else:
+            print(f"Downloading {output_path}")
+            ds = self.get_sentinel_data(bbox=tile_bounds, cloud_cover=cloud_cover, start_date=start_date, end_date=end_date)
+            ds.to_netcdf(output_path, format='NETCDF4')
+
+        return output_path
+    
+
+
+class TileDownloader(Downloader):
+    def __init__(self, url_template, output_dir):
+        """
+        Initialize the downloader with a URL template and output directory.
+        """
+        super().__init__(output_dir)
+        self.url_template = url_template
+
+                
+    def download_tile(self, file_name, unzip=False, **kwargs):
+        """
+        Download a tile using any number of formatting parameters for the URL template.
+        The downloaded file will be saved with a filename based on the kwargs.
+        """
+        # make dir if not exist
+        if not self.output_dir:
+            raise ValueError("Output directory is not set.")
+
+        url = self.url_template.format(**kwargs)
+        match = re.search(r"https?:\/\/.*\/(.*\.[^.]+$)", url)
+        if not match:
+            raise ValueError(f"Could not extract filename from URL: {url}")
+        original_extension = "." + match.group(1).split(".")[-1]
+
+        file_path = os.path.join(self.output_dir, file_name+ original_extension)
+
+        # check for alternative paths
+        alternative_extensions = ['.tif', '.laz', ".tiff", ".geojson"]
+        alternative_extensions += [ext.upper() for ext in alternative_extensions]
+        for ext in alternative_extensions:
+            alternative_path_dir = os.path.dirname(file_path)
+            alternative_path = os.path.join(alternative_path_dir, file_name+ext)
+
+            if os.path.exists(alternative_path):
+                print(f"File {alternative_path} already exists extracted. Skipping download.")
+                return alternative_path
+
+        file_path = download_url(url, self.output_dir, filename=file_name + original_extension)
+        if unzip == True and file_path.endswith(".zip"):
+            file_path = self.unzip(file_path, file_name)
+            
+        return file_path
+
+def download_url(url, directory, filename = None, chunk_size = 1048576):
+    """
+    Downloads the file from a url to a filepaht in chucks of 1MB with some error handeling
+    """
+    # alternative user agent from wget to spoof the
+    headers = {
+        "User-Agent": "Wget/1.21.2",
+        "Accept": "*/*",
+        "Accept-Encoding": "identity",
+        "Connection": "Keep-Alive"
+    }
+
+    try:
+        with requests.get(url, stream=True, timeout=30, headers=headers) as response:
+            response.raise_for_status()  # Raise error for bad status if applicable
+            total = int(response.headers.get("content-length", 0))
+            filepath = os.path.join(directory, filename)
+
+            with open(filepath, "wb") as file, tqdm(desc=filepath, total=total, unit="B", unit_scale=True) as bar:
+                for data in response.iter_content(chunk_size=chunk_size):
+                    size = file.write(data)
+                    bar.update(size)
+        return filepath
+
+    except requests.exceptions.RequestException as e:
+        print(f"Error downloading {url}: {e}")
+        return None
+    
+def delete_recursively(path, test=False):
+    """
+    Deletes a directory and only its contents
+    """
+    subdirs = [f.path for f in os.scandir(path) if f.is_dir()]
+    files = [f.path for f in os.scandir(path) if f.is_file()]
+    for subdir in subdirs:
+        delete_recursively(subdir, test=test)
+    for file in files:
+        if test:
+            print(f"Would delete: {file}")
+        else:
+            try:
+                os.remove(file)
+                print(f"Deleted: {file}")
+            except Exception as e:
+                print(f"Error deleting {file}: {e}")
+    return 
+
+class WMTSMap(Downloader):
     """
     Represents a WMTS map source. Fetches image tiles and assembles full images based on coordinates.
     
@@ -17,7 +199,8 @@ class WMTSMap:
     Outputs:
         Initialized WMTSMap object
     """
-    def __init__(self, url_template, gsd, scale, tile_width, tile_height, top_left, year):
+    def __init__(self, output_dir, url_template, gsd, scale, tile_width, tile_height, top_left, year):
+        super().__init__(output_dir)
         self.url_template = url_template
         self.gsd = float(gsd)
         self.scale = float(scale)
@@ -27,6 +210,7 @@ class WMTSMap:
         self.year = int(year)
         self.pix2m = 0.00028  # According to OGC WMTS 1.0 spec for meters
         self.scaledown = int((self.tile_width * self.scale * self.pix2m)/self.gsd)
+        
 
     def coord2tile(self, cx, cy, int_cast=True):
         """
@@ -66,7 +250,7 @@ class WMTSMap:
         else:
             raise Exception(f"Failed to fetch tile at {url}")
 
-    def get_image(self, c1, c2):
+    def get_image(self, c1, c2, timing=False):
         """
         Fetches and stitches all tiles between two coordinates using multithreading.
 
@@ -75,6 +259,9 @@ class WMTSMap:
         Outputs:
             PIL.Image of combined area
         """
+        if timing:
+            t1 = time.time()
+
         x1, y1 = c1
         x2, y2 = c2
         x1, x2 = max(x1, x2), min(x1, x2)
@@ -105,7 +292,13 @@ class WMTSMap:
             for col_idx, tile in enumerate(row):
                 stitched_img.paste(tile, (col_idx * im_tile_width, row_idx * im_tile_height))
 
-        return stitched_img
+        if timing:
+            t2 = time.time()
+            tdiff = t2-t1
+        else:
+            tdiff = 0
+
+        return stitched_img, tdiff
 
         
     def crop_to_bbox(self, stitched_img, top_left, bottom_right):
@@ -144,7 +337,7 @@ class WMTSMap:
         return cropped_img, (left, top)
 
 
-    def save_image(self, img, top_left_coord, bottom_right_coord, path="output.tif"):
+    def save_image(self, top_left_coord, bottom_right_coord, file_name="output.tif", img=False):
         """
         Crops the image to the bounding box and saves as a GeoTIFF with correct geotransform.
 
@@ -152,8 +345,11 @@ class WMTSMap:
             img (PIL.Image): The stitched image (PIL format).
             top_left_coord (tuple): EPSG:28992 coordinate for the top-left corner (x, y).
             bottom_right_coord (tuple): EPSG:28992 coordinate for the bottom-right corner (x, y).
-            path (str): The path to save the resulting GeoTIFF file.
+            file_name (str): The file_name to save the resulting GeoTIFF file.
         """
+        if img == False:
+            img, timing = self.get_image(top_left_coord, bottom_right_coord)
+
         # Crop the image to the bounding box
         cropped_img, pixel_offset = self.crop_to_bbox(img, top_left_coord, bottom_right_coord)
 
@@ -191,9 +387,11 @@ class WMTSMap:
         }
 
         # Save the cropped image as a GeoTIFF
-        with rasterio.open(path, "w", **profile) as dst:
+        image_path = os.path.join(self.output_dir, file_name)
+        with rasterio.open(image_path, "w", **profile) as dst:
             dst.write(resized_img)
 
+        return image_path
 
 
 class WMTSBuilder:
@@ -203,7 +401,8 @@ class WMTSBuilder:
     Inputs: xml_url (str), identifier (str), detail (int)
     Outputs: Initialized WMTSBuilder with parsed layer data
     """
-    def __init__(self, xml_url, identifier="EPSG:28992", detail=19):
+    def __init__(self, source_dir, xml_url, identifier="EPSG:28992", detail=19):
+        self.source_dir = source_dir
         self.detail = detail
         self.xml_url = xml_url
         self.identifier = identifier
@@ -280,6 +479,7 @@ class WMTSBuilder:
                 TileMatrixSet=lyr["tilematrixset"],
                 TileMatrix=self.tilematrix
             )
-            map_ = WMTSMap(url+template_url_suf, gsd=lyr["gsd"], scale=self.scale, tile_width=self.tile_width, tile_height=self.tile_height, top_left=self.top_left, year=lyr["year"])
+            output_dir = os.path.join(self.source_dir, lyr["layer"])
+            map_ = WMTSMap(output_dir, url+template_url_suf, gsd=lyr["gsd"], scale=self.scale, tile_width=self.tile_width, tile_height=self.tile_height, top_left=self.top_left, year=lyr["year"])
             maps.append(map_)
         return maps

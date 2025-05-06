@@ -28,16 +28,16 @@ class DSBuilder:
     def __init__(self):
         pass
 
-    def clean_sources(self, path=source_dir, test=False):
+    def clean_sources(self, path=source_dir, test=True):
         """
         Gives the option to delete the sources directory
         """
-        from utils.tiles import delete_recursively
+        from utils.download import delete_recursively
         if os.path.exists(path):
             print(f"Do you want to delete the contents of {path} recursively? (y/n): ")
             yn = input()
             if yn.lower() == "y":
-                delete_recursively(path, test=True)
+                delete_recursively(path, test=test)
         else:
             print(f"Directory {path} does not exist. No action taken.")
 
@@ -45,14 +45,14 @@ class DSBuilder:
         """
         Downloads key sources that are required for tile downloading
         """
-        from utils.tiles import download_url
+        from utils.download import download_url
         print("Downloading sources from source urls")
         download_url(ahn_subtile_url, source_dir, filename=ahn_subtile_fn)
         download_url(ahn_tile_url, source_dir, filename=ahn_tile_fn)
         download_url(utrecht_trees_url, source_dir, filename=utrecht_trees_fn)
     
     def wmts_quality(self, exp_name, download=False, plot=False):
-        from utils.wtms import WMTSBuilder
+        from utils.download import WMTSBuilder
         from tqdm import tqdm
         from sewar import vifp
         import matplotlib.pyplot as plt
@@ -66,21 +66,18 @@ class DSBuilder:
         # Download images if specified
         if download:
             for detail in tqdm(detail_range, desc="Downloading images"):
-                wmts_builder = WMTSBuilder(orthomosaic_wmts_url, detail=detail)
+                wmts_builder = WMTSBuilder(source_dir, orthomosaic_wmts_url, detail=detail)
                 maps = wmts_builder.build_maps()
                 # Coordinates EPSG:28992
                 c1 = (127677.90,431678.96)
                 test_size = 25
                 c2 = (c1[0] + test_size, c1[1] - test_size)
 
-                t1 = time.time()
-                image = maps[0].get_image(c1, c2)
-                t2 = time.time()
-                tdiff = t2 - t1
-                path = f"temp/{exp_name}_{detail}_{int(tdiff * 1000)}.tif"
-                maps[0].save_image(image, c1, c2, path=path)
+                image, tdiff = maps[0].get_image(c1, c2, timing=True)
+                image_name = f"{exp_name}_{detail}_{int(tdiff * 1000)}.tif"
+                image_path = maps[0].save_image(c1, c2, file_name=image_name, img=image)
 
-                exp_entries.append((int(tdiff * 1000), detail, path))  # Store time in ms, detail, and path
+                exp_entries.append((int(tdiff * 1000), detail, image_path))  # Store time in ms, detail, and path
                 tqdm.write(f"Detail {detail} took {int(1000 * tdiff)} ms")
 
             # Sort by detail level
@@ -140,8 +137,8 @@ class DSBuilder:
         import pandas as pd
         import geopandas as gpd
         import matplotlib.pyplot as plt
-        from utils.tiles import TileDownloader
-        from utils.sentinel import SentinelDownloader
+        from utils.download import TileDownloader
+        from utils.download import SentinelDownloader
 
         ahn_tiles_path = "zip://" + ahn_tile_path
         tile_polygons_gdf = gpd.read_file(ahn_tiles_path)
@@ -204,7 +201,7 @@ class DSBuilder:
 
         # download sentinel 2 datacubes as tiles
         print("\nDownloading Sentinel 2 tiles")
-        sentinel_dl = SentinelDownloader(url=sentinel2_url, sentinel_dir=sentinel_dir)
+        sentinel_dl = SentinelDownloader(url=sentinel2_url, output_dir=sentinel_dir)
         for index, tile in result_subtile_polygons.iterrows():
             tile_idx = tile["GT_AHNSUB"]
             tile_bounds = tile["geometry"].bounds
