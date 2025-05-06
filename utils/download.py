@@ -31,10 +31,19 @@ class Downloader:
 
     def file_inventory(self):
         """
-        Reads the CSV file and stores the file information in a DataFrame.
+        Initializes the CSV tracker. If it doesn't exist, scans the directory
+        and populates it with existing files marked as successfully downloaded.
         """
         if not os.path.exists(self.tracker_path):
-            self.file_data = pd.DataFrame(columns=['file_path', 'status'])
+            file_list = [
+                os.path.join(self.output_dir, f)
+                for f in os.listdir(self.output_dir)
+                if os.path.isfile(os.path.join(self.output_dir, f)) and not f.endswith('.csv')
+            ]
+            self.file_data = pd.DataFrame({
+                'file_path': file_list,
+                'status': [True] * len(file_list)
+            })
             self.file_data.to_csv(self.tracker_path, index=False)
         else:
             self.file_data = pd.read_csv(self.tracker_path)
@@ -44,18 +53,26 @@ class Downloader:
         Checks if the given file path exists in the DataFrame.
         """
         return filepath in self.file_data['file_path'].values
-    
+
     @staticmethod
     def download_wrapper(func):
         def wrapped(*args, **kwargs):
+            self = args[0]
+            path = None
             try:
                 path = func(*args, **kwargs)
                 status = True
             except Exception as e:
-                print(e)
+                print("Download failed:", e)
                 status = False
-            
-            args[0].update_file_tracker(path, status)
+                # If a partial file was created, delete it
+                if path and os.path.exists(path):
+                    try:
+                        os.remove(path)
+                    except Exception as remove_err:
+                        print(f"Failed to delete file {path}: {remove_err}")
+            # Update tracker regardless of success
+            self.update_file_tracker(path, status)
             return path
         return wrapped
 
@@ -91,7 +108,7 @@ class Downloader:
 
 
 
-class SentinelDownloader:
+class SentinelDownloader(Downloader):
     def __init__(self, url, output_dir, crs="EPSG:28992"):
         self.url = url
         self.catalog = Client.open(self.url)
