@@ -2,7 +2,7 @@ import logging
 import os
 import re
 import time
-import csv
+import json
 import pandas as pd
 import warnings
 from concurrent.futures import ThreadPoolExecutor
@@ -27,26 +27,15 @@ class Downloader:
         os.makedirs(self.output_dir, exist_ok=True)
         output_dir_csv = os.path.basename(f"{self.output_dir}.csv")
         self.tracker_path = os.path.join(self.output_dir, output_dir_csv)
-        self.file_inventory()
+        self.initialize_csv_headers()
 
-    def file_inventory(self):
+    def initialize_csv_headers(self):
         """
-        Initializes the CSV tracker. If it doesn't exist, scans the directory
-        and populates it with existing files marked as successfully downloaded.
+        Initializes the CSV tracker headers if the CSV file
         """
-        if not os.path.exists(self.tracker_path):
-            file_list = [
-                os.path.join(self.output_dir, f)
-                for f in os.listdir(self.output_dir)
-                if os.path.isfile(os.path.join(self.output_dir, f)) and not f.endswith('.csv')
-            ]
-            self.file_data = pd.DataFrame({
-                'file_path': file_list,
-                'status': [True] * len(file_list)
-            })
-            self.file_data.to_csv(self.tracker_path, index=False)
-        else:
-            self.file_data = pd.read_csv(self.tracker_path)
+        # Create an empty DataFrame with the desired headers
+        self.file_data = pd.DataFrame(columns=['file_path', 'status', 'args', 'kwargs'])
+        self.file_data.to_csv(self.tracker_path, index=False)
 
     def file_exists(self, filepath):
         """
@@ -58,29 +47,32 @@ class Downloader:
     def download_wrapper(func):
         def wrapped(*args, **kwargs):
             self = args[0]
-            path = None
             try:
-                path = func(*args, **kwargs)
+                self.output_path = func(*args, **kwargs)
                 status = True
             except Exception as e:
                 print("Download failed:", e)
                 status = False
-                # If a partial file was created, delete it
-                if path and os.path.exists(path):
-                    try:
-                        os.remove(path)
-                    except Exception as remove_err:
-                        print(f"Failed to delete file {path}: {remove_err}")
-            # Update tracker regardless of success
-            self.update_file_tracker(path, status)
-            return path
+                if os.path.exists(self.output_path):
+                    os.remove(self.output_path)
+            # Store serialized arguments
+            serialized_args = json.dumps(args[1:])  # exclude `self`
+            serialized_kwargs = json.dumps(kwargs)
+            self.update_file_tracker(self.output_path, status, serialized_args, serialized_kwargs)
+
+            return self.output_path
         return wrapped
 
-    def update_file_tracker(self, file_path, status):
+    def update_file_tracker(self, file_path, status, args="[]", kwargs="{}"):
         if self.file_exists(file_path):
-            self.file_data.loc[self.file_data['file_path'] == file_path, ['status']] = [status]
+            self.file_data.loc[self.file_data['file_path'] == file_path, ['status', 'args', 'kwargs']] = [status, args, kwargs]
         else:
-            new_row = {'file_path': file_path, 'status': status}
+            new_row = {
+                'file_path': file_path,
+                'status': status,
+                'args': args,
+                'kwargs': kwargs
+            }
             self.file_data = pd.concat([self.file_data, pd.DataFrame([new_row])], ignore_index=True)
 
         self.file_data.to_csv(self.tracker_path, index=False)
@@ -110,6 +102,7 @@ class Downloader:
 
 class SentinelDownloader(Downloader):
     def __init__(self, url, output_dir, crs="EPSG:28992"):
+        super().__init__(output_dir)
         self.url = url
         self.catalog = Client.open(self.url)
         self.crs = crs
@@ -156,15 +149,15 @@ class SentinelDownloader(Downloader):
         if not self.output_dir:
             raise ValueError("Output directory is not set.")
         
-        output_path = os.path.join(self.output_dir, f"{tile_name}.nc")
-        if os.path.exists(output_path):
-            print(f"File {output_path} already exists extracted. Skipping download.")
+        self.output_path = os.path.join(self.output_dir, f"{tile_name}.nc")
+        if os.path.exists(self.output_path):
+            print(f"File {self.output_path} already exists extracted. Skipping download.")
         else:
-            print(f"Downloading {output_path}")
+            print(f"Downloading {self.output_path}")
             ds = self.get_sentinel_data(bbox=tile_bounds, cloud_cover=cloud_cover, start_date=start_date, end_date=end_date)
-            ds.to_netcdf(output_path, format='NETCDF4')
+            ds.to_netcdf(self.output_path, format='NETCDF4')
 
-        return output_path
+        return self.output_path
     
 
 
@@ -194,25 +187,25 @@ class TileDownloader(Downloader):
             raise ValueError(f"Could not extract filename from URL: {url}")
         original_extension = "." + match.group(1).split(".")[-1]
 
-        file_path = os.path.join(self.output_dir, file_name+original_extension)
+        self.output_path = os.path.join(self.output_dir, file_name+original_extension)
 
         # check for alternative paths
         alternative_extensions = ['.tif', '.laz', ".tiff", ".geojson"]
         alternative_extensions += [ext.upper() for ext in alternative_extensions]
         for ext in alternative_extensions:
-            alternative_path_dir = os.path.dirname(file_path)
+            alternative_path_dir = os.path.dirname(self.output_path)
             alternative_path = os.path.join(alternative_path_dir, file_name+ext)
 
             if os.path.exists(alternative_path):
                 print(f"File {alternative_path} already exists extracted. Skipping download.")
                 return alternative_path
 
-        file_path = download_url(url, self.output_dir, filename=file_name + original_extension)
+        self.output_path = download_url(url, self.output_dir, filename=file_name + original_extension)
 
-        if unzip == True and file_path.endswith(".zip"):
-            file_path = self.unzip(file_path, file_name)
+        if unzip == True and self.output_path.endswith(".zip"):
+            self.output_path = self.unzip(self.output_path, file_name)
 
-        return file_path
+        return self.output_path
             
 
 def download_url(url, directory, filename = None, chunk_size = 1048576):
@@ -350,7 +343,7 @@ class WMTSMap(Downloader):
         coords = [(x, y) for y in range(yt1, yt2 + 1) for x in range(xt1, xt2 + 1)]
 
         # Use threads for I/O-bound tile downloading
-        with ThreadPoolExecutor(max_workers=10) as executor:
+        with ThreadPoolExecutor() as executor:
             tiles_flat = list(executor.map(lambda xy: self.get_tile(*xy, tiles=True), coords))
 
         # Convert flat tile list back to 2D grid (rows of tiles)
@@ -461,11 +454,11 @@ class WMTSMap(Downloader):
         }
 
         # Save the cropped image as a GeoTIFF
-        image_path = os.path.join(self.output_dir, file_name)
-        with rasterio.open(image_path, "w", **profile) as dst:
+        self.output_path = os.path.join(self.output_dir, file_name)
+        with rasterio.open(self.output_path, "w", **profile) as dst:
             dst.write(resized_img)
 
-        return image_path
+        return self.output_path
 
 
 class WMTSBuilder:
