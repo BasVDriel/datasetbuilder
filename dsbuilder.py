@@ -207,6 +207,44 @@ class DSBuilder:
             tile_bounds = tile["geometry"].bounds
             sentinel_dl.download_tile(tile_bounds=tile_bounds, tile_name=tile_idx)
 
+    def chm_test(self):
+        from utils.compute import pointcloud_to_chm
+        import matplotlib.pyplot as plt
+        import rasterio
+
+        resolution = 0.5  # raster resolution in meters
+        subtile_idx = "31HN1_20"
+        las_file_path = f'sources/ahn_tiles/{subtile_idx}.LAZ'
+
+        chm, transform = pointcloud_to_chm(las_file_path, resolution)
+
+        # === Save CHM Raster ===
+        chm_path = "output_chm.tif"
+        with rasterio.open(
+            chm_path,
+            "w",
+            driver="GTiff",
+            height=chm.shape[0],
+            width=chm.shape[1],
+            count=1,
+            dtype=chm.dtype,
+            crs="EPSG:28992",
+            transform=transform
+        ) as dst:
+            dst.write(chm, 1)
+
+        print(f"CHM saved to: {os.path.abspath(chm_path)}")
+        # === Plot CHM ===
+        plt.figure(figsize=(10, 15))  # Set a large figure size
+        plt.imshow(chm, cmap="gray")
+        plt.colorbar(label="Canopy Height (m)")
+        plt.title("Canopy Height Model (CHM)")
+        plt.xlabel("Easting (m)")
+        plt.ylabel("Northing (m)")
+        plt.grid(visible=True, alpha=0.5)
+        plt.show()
+
+
 if __name__ == "__main__":
     fire.Fire(DSBuilder)
 
