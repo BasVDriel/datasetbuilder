@@ -2,6 +2,12 @@ import fire
 import os
 
 source_dir = "sources"
+linked_source_dir = "/mnt/datapart/datasetbuilder/"
+
+# set up symbolic link to the large disk
+os.remove(source_dir)
+os.symlink(linked_source_dir, source_dir, target_is_directory=True)
+
 dem_dir = os.path.join(source_dir, "dem")
 dtm_dir = os.path.join(source_dir, "dtm")
 ahn_dir = os.path.join(source_dir, "ahn_tiles")
