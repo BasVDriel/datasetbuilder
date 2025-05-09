@@ -1,10 +1,8 @@
 import numpy as np
-import rasterio
 from rasterio.transform import from_origin
 from rasterio.fill import fillnodata
 from scipy.stats import binned_statistic_2d
 import laspy
-import os
 
 def pointcloud_to_chm(las_file_path, resolution, ground_class=2, tree_class=1):
     las_data = laspy.read(las_file_path)
@@ -18,7 +16,7 @@ def pointcloud_to_chm(las_file_path, resolution, ground_class=2, tree_class=1):
         tree_mask = classifications == tree_class
         dsm_points = points[tree_mask]
     else:
-        dsm_poinst = points
+        dsm_points = points
     gx, gy, gz = ground_points[:, 0], ground_points[:, 1], ground_points[:, 2]
     cx, cy, cz = dsm_points[:, 0], dsm_points[:, 1], dsm_points[:, 2]
 

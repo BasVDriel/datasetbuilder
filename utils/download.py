@@ -37,6 +37,13 @@ class Downloader:
         self.file_data = pd.DataFrame(columns=['file_path', 'status', 'args', 'kwargs'])
         self.file_data.to_csv(self.tracker_path, index=False)
 
+    def is_json_serializable(self, value):
+        try:
+            json.dumps(value)
+            return True
+        except (TypeError, OverflowError):
+            return False
+
     def file_exists(self, filepath):
         """
         Checks if the given file path exists in the DataFrame.
@@ -55,9 +62,14 @@ class Downloader:
                 status = False
                 if os.path.exists(self.output_path):
                     os.remove(self.output_path)
-            # Store serialized arguments
-            serialized_args = json.dumps(args[1:])  # exclude `self`
-            serialized_kwargs = json.dumps(kwargs)
+
+            # Store serialized arguments but only keep JSON-serializable values
+            filtered_args = [a for a in args[1:] if self.is_json_serializable(a)]
+            filtered_kwargs = {k: v for k, v in kwargs.items() if self.is_json_serializable(v)}
+
+            serialized_args = json.dumps(filtered_args)
+            serialized_kwargs = json.dumps(filtered_kwargs)
+
             self.update_file_tracker(self.output_path, status, serialized_args, serialized_kwargs)
 
             return self.output_path
@@ -92,12 +104,6 @@ class Downloader:
         # remove the original zip file
         os.remove(file_path)
         return return_path
-
-
-
-
-
-
 
 
 class SentinelDownloader(Downloader):
@@ -298,7 +304,7 @@ class WMTSMap(Downloader):
         else:
             return int(tx), int(ty)
 
-    def get_tile(self, cx, cy, tiles=False):
+    def get_wmts_tile(self, cx, cy, tiles=False):
         """
         Downloads a tile image from given coordinates or tile indices (no resize).
 
@@ -344,7 +350,7 @@ class WMTSMap(Downloader):
 
         # Use threads for I/O-bound tile downloading
         with ThreadPoolExecutor() as executor:
-            tiles_flat = list(executor.map(lambda xy: self.get_tile(*xy, tiles=True), coords))
+            tiles_flat = list(executor.map(lambda xy: self.get_wmts_tile(*xy, tiles=True), coords))
 
         # Convert flat tile list back to 2D grid (rows of tiles)
         tiles = [tiles_flat[i * x_size:(i + 1) * x_size] for i in range(y_size)]
