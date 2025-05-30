@@ -5,8 +5,8 @@ source_dir = "sources"
 linked_source_dir = "/mnt/datapart/datasetbuilder/"
 
 # set up symbolic link to the large disk if it has not been done yet
-# os.remove(source_dir)
-# os.symlink(linked_source_dir, source_dir, target_is_directory=True)
+os.remove(source_dir)
+os.symlink(linked_source_dir, source_dir, target_is_directory=True)
 
 dem_dir = os.path.join(source_dir, "dem")
 dtm_dir = os.path.join(source_dir, "dtm")
@@ -251,7 +251,7 @@ class DSBuilder:
 
 
     def extract_polygons(self, subtile_idx="31HN1_20", plot=True, resolution=0.5):
-        from utils.compute import pointcloud_to_chm, tree_marker_grid, filter_labels
+        from utils.compute import pointcloud_to_chm, tree_marker_grid, filter_labels, compute_polygons
         import geopandas as gpd
         import pandas as pd
         import numpy as np
@@ -295,12 +295,18 @@ class DSBuilder:
         # filter out poorly segmented labels for now until improvements are made to the segmentation
         filtered_labels, tree_regions = filter_labels(labels, regions, markers, markers_array)
  
+        # extract the polygons around each raster mask
+        image_tile_polygons = compute_polygons(tree_regions)
+
         # Visualization
         if plot:
             fig, ax = plt.subplots(figsize=(25, 25))
             ax.imshow(chm_nan_to_zero, cmap='gray', interpolation='none')
             ax.imshow(filtered_labels, cmap='nipy_spectral', alpha=0.4)
             ax.set_title("Filtered Watershed Segmentation (Circular, 10–20m Diameter)")
+            for label, outline in image_tile_polygons.items():
+                plt.plot(outline[:, 1], outline[:, 0], color='blue', linewidth=1)
+
             plt.axis("off")
             plt.show()
         

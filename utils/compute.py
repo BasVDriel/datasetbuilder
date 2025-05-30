@@ -2,6 +2,7 @@ import numpy as np
 from rasterio.transform import from_origin
 from rasterio.fill import fillnodata
 from scipy.stats import binned_statistic_2d
+from skimage import measure
 import laspy
 
 def pointcloud_to_chm(las_file_path, resolution, ground_class=2, tree_class=1):
@@ -106,3 +107,37 @@ def filter_labels(labels, regions, markers, markers_array, ratio_thres = 1.5, di
             for r, c in coords:
                 filtered_labels[r, c] = label
     return filtered_labels, filtered_tree_regions
+
+
+def compute_polygons(tree_regions):
+    """"
+    Takes in a dictionary of tree regions 
+    """
+    outlines = {}
+    for label, region in tree_regions.items():
+
+        # find the extend to properly link it to image tile coordiantes instead of local patch coordinates
+        coords = region.coords
+        min_x = coords[:, 1].min()
+        min_y = coords[:, 0].min()
+
+        # obtain image patches from the raster masks, pad for polygon extraction
+        patch = region.image
+        pad_width = 1 
+        patch_padded = np.pad(patch, pad_width, mode='constant', constant_values=0)
+
+        try:
+            outline = measure.find_contours(patch_padded, 0.5)[0]
+            if np.array_equal(outline[0, :], outline[-1, :]):
+
+                # convert back to old coordinates and stash for later
+                orig_outline = np.zeros_like(outline)
+                orig_outline[:, 0] = outline[:, 0] - pad_width + min_y  
+                orig_outline[:, 1] = outline[:, 1] - pad_width + min_x 
+                outlines[label] = orig_outline
+        except Exception as e:
+            print(f"Continuing with polygon extraction but somethign went wrong for tree {label}\n {e}")
+            continue
+        
+    return outlines
+    
