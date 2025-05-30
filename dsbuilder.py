@@ -251,7 +251,7 @@ class DSBuilder:
 
 
     def extract_polygons(self, subtile_idx="31HN1_20", plot=True, resolution=0.5):
-        from utils.compute import pointcloud_to_chm, tree_marker_grid, filter_labels, compute_polygons
+        from utils.compute import pointcloud_to_chm, tree_marker_grid, filter_labels, compute_polygons, pixel_to_world
         import geopandas as gpd
         import pandas as pd
         import numpy as np
@@ -259,6 +259,7 @@ class DSBuilder:
         from skimage.segmentation import watershed
         from skimage import measure
         from scipy import ndimage as ndi
+        from shapely.geometry import Polygon
 
         # load tree poinst from the utrecht trees geopackage
         utrecht_trees_path = "sources/utrecht_trees.gpkg"
@@ -296,7 +297,20 @@ class DSBuilder:
         filtered_labels, tree_regions = filter_labels(labels, regions, markers, markers_array)
  
         # extract the polygons around each raster mask
-        image_tile_polygons = compute_polygons(tree_regions)
+        image_coord_polygons = compute_polygons(tree_regions)
+
+        # convert polygons back to world coordinates
+        world_coord_polygons = {}
+        for label, polygon in image_coord_polygons.items():
+            x = polygon[:, 0]
+            y = polygon[:, 1]
+            world_coord_tuple = pixel_to_world(transform, x, y)
+            world_coord_polygons[label] = np.stack(world_coord_tuple, axis=-1)
+
+        # convert to shapely polygons and save as geojson
+        geometries = [Polygon(polygon) for label, polygon in world_coord_polygons.items()]
+        gdf = gpd.GeoDataFrame(geometry=geometries, crs="EPSG:28992")
+        gdf.to_file("multi_polygon_output.geojson", driver="GeoJSON")
 
         # Visualization
         if plot:
@@ -304,7 +318,7 @@ class DSBuilder:
             ax.imshow(chm_nan_to_zero, cmap='gray', interpolation='none')
             ax.imshow(filtered_labels, cmap='nipy_spectral', alpha=0.4)
             ax.set_title("Filtered Watershed Segmentation (Circular, 10–20m Diameter)")
-            for label, outline in image_tile_polygons.items():
+            for label, outline in image_coord_polygons.items():
                 plt.plot(outline[:, 1], outline[:, 0], color='blue', linewidth=1)
 
             plt.axis("off")
