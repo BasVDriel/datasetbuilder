@@ -4,9 +4,9 @@ import os
 source_dir = "sources"
 linked_source_dir = "/mnt/datapart/datasetbuilder/"
 
-# set up symbolic link to the large disk
-os.remove(source_dir)
-os.symlink(linked_source_dir, source_dir, target_is_directory=True)
+# set up symbolic link to the large disk if it has not been done yet
+# os.remove(source_dir)
+# os.symlink(linked_source_dir, source_dir, target_is_directory=True)
 
 dem_dir = os.path.join(source_dir, "dem")
 dtm_dir = os.path.join(source_dir, "dtm")
@@ -219,7 +219,7 @@ class DSBuilder:
 
         resolution = 0.5  # raster resolution in meters
         subtile_idx = "31HN1_20"
-        las_file_path = f'sources/ahn_tiles/{subtile_idx}.LAZ'
+        las_file_path = os.path.join(ahn_dir, f"{subtile_idx}.LAZ")
 
         chm, transform = pointcloud_to_chm(las_file_path, resolution)
 
@@ -250,6 +250,55 @@ class DSBuilder:
         plt.show()
 
 
+    def extract_polygons(self, subtile_idx="31HN1_20", plot=True, resolution=0.5):
+        from utils.compute import pointcloud_to_chm, tree_marker_grid, filter_labels
+        import geopandas as gpd
+        import pandas as pd
+        import numpy as np
+        import matplotlib.pyplot as plt
+        from skimage.segmentation import watershed
+        from skimage import measure
+        from scipy import ndimage as ndi
+
+        # load tree poinst from the utrecht trees geopackage
+        utrecht_trees_path = "sources/utrecht_trees.gpkg"
+        layer0 = gpd.read_file(utrecht_trees_path, layer=0)
+        layer1 = gpd.read_file(utrecht_trees_path, layer=1)
+        trees_gdf = gpd.GeoDataFrame(pd.concat([layer0, layer1], ignore_index=True), crs=layer0.crs)
+
+        # Construct CHM
+        las_file_path = os.path.join(ahn_dir, f"{subtile_idx}.LAZ")
+        chm, transform = pointcloud_to_chm(las_file_path, resolution)
+
+        # extract the specific subtile polygon
+        subtile_polygons_gdf = gpd.read_file(ahn_subtile_path)
+        subtile_polygon = subtile_polygons_gdf[subtile_polygons_gdf["GT_AHNSUB"] == subtile_idx]
+
+        # Clip the trees to the subtile polygon
+        sub_trees_gdf = gpd.clip(trees_gdf, subtile_polygon)
+
+        # extract the coordinates of the trees
+        tree_coords = [(geom.x, geom.y) for geom in sub_trees_gdf.geometry]
+        markers, markers_array = tree_marker_grid(chm, tree_coords, transform)
+
+        # Run watershed segmentation
+        chm_nan_to_zero = np.nan_to_num(chm, nan=0.0)
+        elevation = ndi.gaussian_filter(chm_nan_to_zero, sigma=1)
+        labels = watershed(-elevation, markers, mask=chm_nan_to_zero > 0)
+        regions = measure.regionprops(labels, chm)
+        
+        # filter out poorly segmented labels for now until improvements are made to the segmentation
+        filtered_labels = filter_labels(labels, regions, markers, markers_array)
+ 
+        # Visualization
+        if plot:
+            fig, ax = plt.subplots(figsize=(25, 25))
+            ax.imshow(chm_nan_to_zero, cmap='gray', interpolation='none')
+            ax.imshow(filtered_labels, cmap='nipy_spectral', alpha=0.4)
+            ax.set_title("Filtered Watershed Segmentation (Circular, 10–20m Diameter)")
+            plt.axis("off")
+            plt.show()
+        
 if __name__ == "__main__":
     fire.Fire(DSBuilder)
 

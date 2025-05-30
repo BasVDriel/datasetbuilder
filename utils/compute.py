@@ -46,3 +46,59 @@ def pointcloud_to_chm(las_file_path, resolution, ground_class=2, tree_class=1):
     return chm, transform
 
 
+def world_to_pixel(transform, x, y, round=True):
+    col, row = ~transform * (x, y)
+    if round:
+        return int(row), int(col)
+    return row, col
+
+def pixel_to_world(transform, row, col):
+    x, y = transform * (col, row)
+    return x, y
+
+
+def tree_marker_grid(chm, tree_coords, transform):
+    markers_list = []
+    markers = np.zeros_like(chm, dtype=np.int32)
+    for idx, (x, y) in enumerate(tree_coords, start=1):
+        r, c = world_to_pixel(transform, x, y)
+        if 0 <= r < markers.shape[0] and 0 <= c < markers.shape[1]:
+            markers[r, c] = idx  # Use a different marker label for each point
+            markers_list.append([r, c])
+    markers_array = np.array(markers_list)
+
+    return markers, markers_array
+
+def filter_labels(labels, regions, markers, markers_array, ratio_thres = 1.5, dist_thres=12, density_thres=0.45):
+    """
+    Filter labels based on distance to tree coordinates, height, density, and ratio of major axis length to equivalent diameter.
+    """
+    # find out which labels are in the markers, becaue the watershed loses this information
+    tree_regions = {}
+    for region in regions:
+        if region.label in markers:
+            tree_regions[region.label] = region
+
+
+    filtered_labels = np.zeros_like(labels, dtype=np.int32)
+
+    for label, region in tree_regions.items():
+        coords = markers_array[label-1]
+        centroid = region.centroid
+
+        dist = np.sqrt((centroid[0] - coords[0])**2 + (centroid[1] - coords[1])**2)
+
+        height = region.intensity_max
+
+        density = region.area / region.area_convex
+
+        # print(f"Label: {label}, Dist: {dist:.2f}, Height: {height:.2f}, Density: {density:.2f}")
+
+        eq_diameter = region.equivalent_diameter_area
+        ratio = region.axis_major_length/eq_diameter
+
+        if (ratio < ratio_thres and dist < dist_thres and density > density_thres):
+            coords = region.coords
+            for r, c in coords:
+                filtered_labels[r, c] = label
+    return filtered_labels
