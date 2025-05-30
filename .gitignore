@@ -3,7 +3,7 @@
 **/__pycache__/
 sources/*
 temp/*
-test.ipynb
+*.ipynb
 *.png
 *.csv
 sources

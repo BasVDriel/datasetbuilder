@@ -281,6 +281,11 @@ class DSBuilder:
         tree_coords = [(geom.x, geom.y) for geom in sub_trees_gdf.geometry]
         markers, markers_array = tree_marker_grid(chm, tree_coords, transform)
 
+        # Ensure contiguous memory for the markers
+        # ABSOLUTELY CRUCIAL do not remove this line if watershed is in use! 
+        # Watershed segmentation depends on the memory layout which has to be coniguous.
+        markers = np.ascontiguousarray(markers) 
+
         # Run watershed segmentation
         chm_nan_to_zero = np.nan_to_num(chm, nan=0.0)
         elevation = ndi.gaussian_filter(chm_nan_to_zero, sigma=1)
@@ -288,7 +293,7 @@ class DSBuilder:
         regions = measure.regionprops(labels, chm)
         
         # filter out poorly segmented labels for now until improvements are made to the segmentation
-        filtered_labels = filter_labels(labels, regions, markers, markers_array)
+        filtered_labels, tree_regions = filter_labels(labels, regions, markers, markers_array)
  
         # Visualization
         if plot:

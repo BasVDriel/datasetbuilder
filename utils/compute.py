@@ -81,10 +81,12 @@ def filter_labels(labels, regions, markers, markers_array, ratio_thres = 1.5, di
 
 
     filtered_labels = np.zeros_like(labels, dtype=np.int32)
+    filtered_tree_regions = {}
 
     for label, region in tree_regions.items():
         coords = markers_array[label-1]
         centroid = region.centroid
+        area = region.area
 
         dist = np.sqrt((centroid[0] - coords[0])**2 + (centroid[1] - coords[1])**2)
 
@@ -97,8 +99,10 @@ def filter_labels(labels, regions, markers, markers_array, ratio_thres = 1.5, di
         eq_diameter = region.equivalent_diameter_area
         ratio = region.axis_major_length/eq_diameter
 
-        if (ratio < ratio_thres and dist < dist_thres and density > density_thres):
+        if (area > 5 and ratio < ratio_thres and dist < dist_thres and density > density_thres):
             coords = region.coords
+            filtered_tree_regions[region.label] = region
+
             for r, c in coords:
                 filtered_labels[r, c] = label
-    return filtered_labels
+    return filtered_labels, filtered_tree_regions
