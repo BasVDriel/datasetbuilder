@@ -1,9 +1,15 @@
 import numpy as np
+import shapely
+import tqdm as tqdm
 from rasterio.transform import from_origin
 from rasterio.fill import fillnodata
 from scipy.stats import binned_statistic_2d
+from concurrent.futures import ThreadPoolExecutor
+import geopandas as gpd
 from skimage import measure
 import laspy
+import os
+import shapely
 
 def pointcloud_to_chm(las_file_path, resolution, ground_class=2, tree_class=1):
     las_data = laspy.read(las_file_path)
@@ -141,3 +147,51 @@ def compute_polygons(tree_regions):
         
     return outlines
     
+
+
+
+def file_writer(ahn_subtile_path, trees_with_poly_df, dataset_dir="output"):
+    point_cloud_folder = os.path.join(dataset_dir, "point_clouds")
+    os.makedirs(point_cloud_folder, exist_ok=True)
+
+    # Load the LAZ file
+    las = laspy.read(ahn_subtile_path)
+    x = las.x
+    y = las.y
+
+    polygons = list(trees_with_poly_df["geometry"])
+    tree_nrs = list(trees_with_poly_df["Boomnummer"])
+    tree_nrs = [int(idx) for idx in tree_nrs]
+
+    def clip_with_polygon(args):
+        polygon, idx = args
+
+        # Clip the point clouds here
+        mask = shapely.contains_xy(polygon, x, y)
+
+        if not np.any(mask):
+            return idx, None  # No points inside polygon
+
+        # apply the mask, this is where the clipping happens. But keep all of the metadata columns
+        output_path = os.path.join(point_cloud_folder, f"{idx}.las")
+        filtered_las = laspy.LasData(las.header)
+        filtered_las.points = las.points[mask]
+        filtered_las.write(output_path)
+
+
+
+        return idx, output_path
+    
+
+     # This will store output paths for updating the DataFrame
+    output_paths = []
+    with ThreadPoolExecutor(6) as executor:
+        with tqdm.tqdm(polygons, desc="Masking polygons") as pbar:
+            for idx, path in executor.map(clip_with_polygon, zip(polygons, tree_nrs)):
+                output_paths.append(path)
+                pbar.update()
+
+    # Add to DataFrame
+    trees_with_poly_df["las_path"] = output_paths
+
+    return trees_with_poly_df  # Optional: return updated DataFrame

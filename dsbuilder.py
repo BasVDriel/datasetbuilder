@@ -73,6 +73,7 @@ class DSBuilder:
             for detail in tqdm(detail_range, desc="Downloading images"):
                 wmts_builder = WMTSBuilder(source_dir, orthomosaic_wmts_url, detail=detail)
                 maps = wmts_builder.build_maps()
+
                 # Coordinates EPSG:28992
                 c1 = (127677.90,431678.96)
                 test_size = 25
@@ -251,7 +252,7 @@ class DSBuilder:
 
 
     def extract_polygons(self, subtile_idx="31HN1_20", plot=True, resolution=0.5):
-        from utils.compute import pointcloud_to_chm, tree_marker_grid, filter_labels, compute_polygons, pixel_to_world
+        from utils.compute import pointcloud_to_chm, tree_marker_grid, filter_labels, compute_polygons, pixel_to_world, file_writer
         import geopandas as gpd
         import pandas as pd
         import numpy as np
@@ -307,10 +308,19 @@ class DSBuilder:
             world_coord_tuple = pixel_to_world(transform, x, y)
             world_coord_polygons[label] = np.stack(world_coord_tuple, axis=-1)
 
-        # convert to shapely polygons and save as geojson
-        geometries = [Polygon(polygon) for label, polygon in world_coord_polygons.items()]
-        gdf = gpd.GeoDataFrame(geometry=geometries, crs="EPSG:28992")
-        gdf.to_file("multi_polygon_output.geojson", driver="GeoJSON")
+        # convert to shapely polygons 
+        polygons = [Polygon(polygon) for label, polygon in world_coord_polygons.items()]
+
+        # Find the trees that have polygons and correct the index for gpd
+        tree_indices = np.array(list(world_coord_polygons.keys()))
+        tree_indices = tree_indices - 1
+        trees_with_poly = sub_trees_gdf.iloc[tree_indices].copy()
+        
+        # Assign valid shapely Polygon objects to the geometry column
+        trees_with_poly["geometry"] = polygons
+        # trees_with_poly.to_file("multi_polygon_output.geojson", driver="GeoJSON")
+
+        file_writer(las_file_path, trees_with_poly)
 
         # Visualization
         if plot:
