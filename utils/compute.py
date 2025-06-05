@@ -228,31 +228,26 @@ def file_writer(ahn_subtile_path, sentinel_subtile_path, trees_with_poly_df, dat
         patch.to_netcdf(sentinel_path)
         return sentinel_path
 
-
-    # # Run make_patch once for tree 0
-    # for n in range(len(center_pnts)):
-    #     print(n)
-    #     cpnt = center_pnts[n]
-    #     poly = polygons[n]
-    #     nr = tree_nrs[n]
-    #     make_patch((cpnt, poly, nr))
-
-
     # This will store output paths for updating the DataFrame
     point_cloud_paths = []
-    sentinel_paths = []
     with ThreadPoolExecutor() as executor:
-        # with tqdm.tqdm(polygons, desc="Clipping pointclouds") as pbar:
-        #     for path in executor.map(clip_with_polygon, zip(polygons, tree_nrs)):
-        #         point_cloud_paths.append(path)
-        #         pbar.update()
-
-        with tqdm.tqdm(polygons, desc="Clipping spectral cubes") as pbar:
-            for path in executor.map(make_patch, zip(center_pnts,  polygons, tree_nrs)):
-                sentinel_paths.append(path)
+        with tqdm.tqdm(polygons, desc="Clipping pointclouds") as pbar:
+            for path in executor.map(clip_with_polygon, zip(polygons, tree_nrs)):
+                point_cloud_paths.append(path)
                 pbar.update()
+
+    # only managed to get it to work single threaded as the code is a bit of a mess here since it was made in a rush
+    # Sorry
+    sentinel_paths = []
+    with tqdm.tqdm(zip(center_pnts, polygons, tree_nrs), desc="Clipping spectral cubes (single-threaded)", total=len(center_pnts)) as pbar:
+        for cpnt, poly, nr in pbar:
+            path = make_patch((cpnt, poly, nr))
+            pbar.update()
+            sentinel_paths.append(path)
+
 
     # Add to DataFrame
     trees_with_poly_df["las_path"] = point_cloud_paths
+    trees_with_poly_df["sentinel_path"] = sentinel_paths
 
     return trees_with_poly_df  # Optional: return updated DataFrame
