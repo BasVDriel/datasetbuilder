@@ -262,6 +262,8 @@ class DSBuilder:
         from scipy import ndimage as ndi
         from shapely.geometry import Polygon
 
+        sentinel_file_path = os.path.join(sentinel_dir, f"{subtile_idx}.nc")
+
         # load tree poinst from the utrecht trees geopackage
         utrecht_trees_path = "sources/utrecht_trees.gpkg"
         layer0 = gpd.read_file(utrecht_trees_path, layer=0)
@@ -316,11 +318,16 @@ class DSBuilder:
         tree_indices = tree_indices - 1
         trees_with_poly = sub_trees_gdf.iloc[tree_indices].copy()
         
-        # Assign valid shapely Polygon objects to the geometry column
+        # Assign valid shapely Polygon objects to the geometry column, also exchange the point coordinates for a point column
+        points_list = trees_with_poly["geometry"]
+        points = np.array([[point.x, point.y] for point in points_list])
+        trees_with_poly["x"] = points[:, 0]
+        trees_with_poly["y"] = points[:, 1]
         trees_with_poly["geometry"] = polygons
-        # trees_with_poly.to_file("multi_polygon_output.geojson", driver="GeoJSON")
 
-        file_writer(las_file_path, trees_with_poly)
+        # segment and write the point 
+        trees_with_poly = file_writer(las_file_path, sentinel_file_path, trees_with_poly)
+        trees_with_poly.to_file("multi_polygon_output.geojson", driver="GeoJSON")
 
         # Visualization
         if plot:
