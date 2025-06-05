@@ -239,7 +239,7 @@ def file_writer(ahn_subtile_path, sentinel_subtile_path, trees_with_poly_df, dat
     # only managed to get it to work single threaded as the code is a bit of a mess here since it was made in a rush
     # Sorry
     sentinel_paths = []
-    with tqdm.tqdm(zip(center_pnts, polygons, tree_nrs), desc="Clipping spectral cubes (single-threaded)", total=len(center_pnts)) as pbar:
+    with tqdm.tqdm(zip(center_pnts, polygons, tree_nrs), desc="Clipping spectral cubes", total=len(center_pnts)) as pbar:
         for cpnt, poly, nr in pbar:
             path = make_patch((cpnt, poly, nr))
             pbar.update()

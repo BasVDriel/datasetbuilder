@@ -410,7 +410,7 @@ class WMTSMap(Downloader):
         return cropped_img, (left, top)
 
     @Downloader.download_wrapper
-    def save_image(self, top_left_coord, bottom_right_coord, file_name="output.tif", img=False):
+    def save_image(self, top_left_coord, bottom_right_coord, output_path=False, file_name="output.tif", img=False):
         """
         Crops the image to the bounding box and saves as a GeoTIFF with correct geotransform.
 
@@ -443,8 +443,8 @@ class WMTSMap(Downloader):
         transform = rasterio.transform.from_origin(origin_x, origin_y, self.gsd, self.gsd)
 
         # resize image to the true size (bounding box size) devided by gsd
-        x_size = int((bottom_right_coord[0] - top_left_coord[0]) / self.gsd)
-        y_size = int((top_left_coord[1] - bottom_right_coord[1]) / self.gsd)
+        x_size = abs(int((bottom_right_coord[0] - top_left_coord[0]) / self.gsd))
+        y_size = abs(int((top_left_coord[1] - bottom_right_coord[1]) / self.gsd))
 
         resized_img = cropped_img.resize((x_size, y_size), resample=Image.NEAREST)
         resized_img = np.array(resized_img).transpose((2, 0, 1))  # (bands, y, x)
@@ -460,7 +460,10 @@ class WMTSMap(Downloader):
         }
 
         # Save the cropped image as a GeoTIFF
-        self.output_path = os.path.join(self.output_dir, file_name)
+        if output_path == False:
+            self.output_path = os.path.join(self.output_dir, file_name)
+        else:
+            self.output_path = output_path
         with rasterio.open(self.output_path, "w", **profile) as dst:
             dst.write(resized_img)
 
