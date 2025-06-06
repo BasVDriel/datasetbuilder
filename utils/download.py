@@ -19,6 +19,9 @@ from tqdm import tqdm
 from odc.stac import load
 from pystac_client import Client
 from pyproj import Transformer
+import os
+from collections import defaultdict
+import geopandas as gpd
 
 
 class Downloader:
@@ -323,6 +326,17 @@ class WMTSMap(Downloader):
         else:
             raise Exception(f"Failed to fetch tile at {url}")
 
+    def sort_coords(self, c1, c2):
+        """"
+        Sort coordinates to upper left and bottom right
+        """
+        x1, y1 = c1
+        x2, y2 = c2
+        c1 = (min(x1, x2), max(y1, y2))
+        c2 = (max(x1, x2), min(y1, y2))
+        return c1, c2
+
+
     def get_image(self, c1, c2, timing=False):
         """
         Fetches and stitches all tiles between two coordinates using multithreading.
@@ -559,3 +573,34 @@ class WMTSBuilder:
             map_ = WMTSMap(output_dir, url+template_url_suf, gsd=lyr["gsd"], scale=self.scale, tile_width=self.tile_width, tile_height=self.tile_height, top_left=self.top_left, year=lyr["year"])
             maps.append(map_)
         return maps
+
+def maps_downloader(maps, tree_pnts, map_folders, patch_size = 40, sleep=0.1):
+    saved_paths = defaultdict(lambda: defaultdict(list))
+    
+    # Loop over maps first (to minimize session time per map)
+    with tqdm(total=len(tree_pnts) * len(maps), desc="Downloading orthomosaics") as pbar:
+        for map_obj, year, gsd_int in maps:
+            folder_path = map_folders[(year, gsd_int)]
+            
+            for tree_pnt in tree_pnts:
+                tree_nr = int(tree_pnt[2])
+                x_center, y_center = tree_pnt[0], tree_pnt[1]
+                r = patch_size / 2
+
+                # Calculate bounding box
+                c1 = x_center - r, y_center - r
+                c2 = x_center + r, y_center + r
+                c1, c2 = map_obj.sort_coords(c1, c2) # I would like to move this line into the save_image method, but problemns so it's here for now
+
+                image_name = f"{tree_nr}.tif"
+                output_path = os.path.join(folder_path, image_name)
+
+                # Retrieve and save image
+                saved_path = map_obj.save_image(c1, c2, output_path=output_path, file_name=image_name)
+                
+                saved_paths[year][gsd_int].append(saved_path)
+                
+                time.sleep(sleep)  # Avoid overwhelming server or session
+                pbar.update()
+
+    return saved_paths

@@ -5,8 +5,10 @@ source_dir = "sources"
 linked_source_dir = "/mnt/datapart/datasetbuilder/"
 
 # set up symbolic link to the large disk if it has not been done yet
-os.remove(source_dir)
-os.symlink(linked_source_dir, source_dir, target_is_directory=True)
+try:
+    os.symlink(linked_source_dir, source_dir, target_is_directory=True)
+except FileExistsError:
+    pass
 
 dem_dir = os.path.join(source_dir, "dem")
 dtm_dir = os.path.join(source_dir, "dtm")
@@ -326,8 +328,8 @@ class DSBuilder:
         trees_with_poly["geometry"] = polygons
 
         # segment and write the point 
-        trees_with_poly = file_writer(las_file_path, sentinel_file_path, trees_with_poly)
-        trees_with_poly.to_file("multi_polygon_output.geojson", driver="GeoJSON")
+        trees_with_poly = file_writer(las_file_path, sentinel_file_path, trees_with_poly, orthomosaic_wmts_url)
+        trees_with_poly.to_file("output/dataset.geojson", driver="GeoJSON")
 
         # Visualization
         if plot:

@@ -4,7 +4,8 @@ import tqdm as tqdm
 from rasterio.transform import from_origin
 from rasterio.fill import fillnodata
 from scipy.stats import binned_statistic_2d
-from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
+from utils.download import maps_downloader, WMTSBuilder
 import geopandas as gpd
 from skimage import measure
 import laspy
@@ -164,9 +165,10 @@ def pad_with_coordinates(pad_size, data_array):
     return data_array
 
 
-def file_writer(ahn_subtile_path, sentinel_subtile_path, trees_with_poly_df, dataset_dir="output"):
+def file_writer(ahn_subtile_path, sentinel_subtile_path, trees_with_poly_df, wmts_url, dataset_dir="output", detail=16, ortho_year_start=2024, ortho_year_end=2024):
     point_cloud_folder = os.path.join(dataset_dir, "point_clouds")
     sentinel_folder = os.path.join(dataset_dir, "sentinel")
+    orthomosaic_folder = os.path.join(dataset_dir, "orthomosaics")
 
     os.makedirs(point_cloud_folder, exist_ok=True)
     os.makedirs(sentinel_folder, exist_ok=True)
@@ -175,6 +177,8 @@ def file_writer(ahn_subtile_path, sentinel_subtile_path, trees_with_poly_df, dat
     las = laspy.read(ahn_subtile_path)
     x = las.x
     y = las.y
+
+    trees_with_poly_df = trees_with_poly_df.iloc[0:20]
 
     polygons = list(trees_with_poly_df["geometry"])
     tree_nrs = list(trees_with_poly_df["Boomnummer"])
@@ -192,7 +196,28 @@ def file_writer(ahn_subtile_path, sentinel_subtile_path, trees_with_poly_df, dat
     # Find the index of the cell in ds_clipped closest to center_pnt_x and center_pnt_y
     center_pnts = [spectral_stack.sel(x=x, y=y, method='nearest').copy() for x, y in zip(xpoints, ypoints)]  
 
+    # The following code is all for the wmts image downloading up until the functions
+    # Initialize WMTS and maps
+    wmts_builder = WMTSBuilder(orthomosaic_folder, wmts_url, detail=detail)
+    maps = wmts_builder.build_maps()
 
+    # Load tree point data
+    tree_pnts = list(zip(xpoints, ypoints, tree_nrs))
+
+    # Precompute and create required folders, store references
+    map_folders = {}  # (year, gsd_int): folder_path
+    filtered_maps = []
+
+    for map_obj in maps:
+        if ortho_year_start <= map_obj.year <= ortho_year_end:
+            year = map_obj.year
+            gsd = map_obj.gsd
+            gsd_int = int(gsd * 100)
+            folder_path = f"output/orthomosaics/{year}_gsd{gsd_int}"
+            os.makedirs(folder_path, exist_ok=True)
+            map_folders[(year, gsd_int)] = folder_path
+            filtered_maps.append((map_obj, year, gsd_int))
+        
     def clip_with_polygon(args):
         polygon, idx = args
 
@@ -244,6 +269,14 @@ def file_writer(ahn_subtile_path, sentinel_subtile_path, trees_with_poly_df, dat
             path = make_patch((cpnt, poly, nr))
             pbar.update()
             sentinel_paths.append(path)
+
+    # this downloads the orthomosaics
+    ortho_paths = maps_downloader(filtered_maps, tree_pnts, map_folders)
+    for year_key, gsd_dict in ortho_paths.items():
+        for gsd_key, paths in gsd_dict.items():
+            column_name = f"{year_key}_gsd{gsd_key}"
+            trees_with_poly_df[column_name] = paths
+
 
 
     # Add to DataFrame
