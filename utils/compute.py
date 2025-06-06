@@ -178,8 +178,6 @@ def file_writer(ahn_subtile_path, sentinel_subtile_path, trees_with_poly_df, wmt
     x = las.x
     y = las.y
 
-    trees_with_poly_df = trees_with_poly_df.iloc[0:20]
-
     polygons = list(trees_with_poly_df["geometry"])
     tree_nrs = list(trees_with_poly_df["Boomnummer"])
     tree_nrs = [int(idx) for idx in tree_nrs]
