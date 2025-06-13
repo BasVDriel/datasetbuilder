@@ -145,6 +145,7 @@ class DSBuilder:
         import pandas as pd
         import geopandas as gpd
         import matplotlib.pyplot as plt
+        from matplotlib.lines import Line2D
         from utils.download import TileDownloader
         from utils.download import SentinelDownloader
 
@@ -173,9 +174,22 @@ class DSBuilder:
 
         # aplot the result polygons for tiles and subtiles
         if plot:
-            ax = result_tile_polygons.plot(color="blue", alpha=0.5, edgecolor="black", label="Tiles")
-            result_subtile_polygons.plot(ax=ax, color="green", alpha=0.5, edgecolor="black", label="Subtiles")
-            filtered_trees_gdf.plot(ax=ax, color="red", marker=".")
+            fig, ax = plt.subplots(figsize=(3.94*2, 3.94*2))
+            result_tile_polygons.plot(ax=ax, color="tab:blue", edgecolor="black", label="Tiles")
+            result_subtile_polygons.plot(ax=ax, color="tab:orange", edgecolor="black", label="Subtiles")
+            filtered_trees_gdf.plot(ax=ax, color="red", marker="+")
+            # Manually add legend entries for Tiles, Subtiles, and Trees
+            legend_elements = [
+                Line2D([0], [0], marker='o', color='w', label='Tiles',
+                       markerfacecolor='tab:blue', markersize=10, markeredgecolor='black'),
+                Line2D([0], [0], marker='o', color='w', label='Subtiles',
+                       markerfacecolor='tab:orange', markersize=10, markeredgecolor='black'),
+                Line2D([0], [0], marker='+', color='red', label='Trees', markersize=10, linestyle='None')
+            ]
+            ax.legend(handles=legend_elements, loc='upper right')
+
+            ax.set_xlabel("Easting")
+            ax.set_ylabel("Northing")
             plt.show()
 
         # check for user input

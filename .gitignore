@@ -9,3 +9,4 @@ temp/*
 sources
 output/*
 *.geojson
+diagrams/*
