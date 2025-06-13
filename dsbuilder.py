@@ -253,7 +253,7 @@ class DSBuilder:
         plt.show()
 
 
-    def extract_polygons(self, subtile_idx="31HN1_20", plot=True, resolution=0.5):
+    def build_dataset(self, subtile_idx="31HN1_20", plot=True, resolution=0.5):
         from utils.compute import pointcloud_to_chm, tree_marker_grid, filter_labels, compute_polygons, pixel_to_world, file_writer
         import geopandas as gpd
         import pandas as pd
@@ -331,18 +331,7 @@ class DSBuilder:
         trees_with_poly = file_writer(las_file_path, sentinel_file_path, trees_with_poly, orthomosaic_wmts_url)
         trees_with_poly.to_file("output/dataset.geojson", driver="GeoJSON")
 
-        # Visualization
-        if plot:
-            fig, ax = plt.subplots(figsize=(25, 25))
-            ax.imshow(chm_nan_to_zero, cmap='gray', interpolation='none')
-            ax.imshow(filtered_labels, cmap='nipy_spectral', alpha=0.4)
-            ax.set_title("Filtered Watershed Segmentation (Circular, 10–20m Diameter)")
-            for label, outline in image_coord_polygons.items():
-                plt.plot(outline[:, 1], outline[:, 0], color='blue', linewidth=1)
 
-            plt.axis("off")
-            plt.show()
-        
 if __name__ == "__main__":
     fire.Fire(DSBuilder)
 

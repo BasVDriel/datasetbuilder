@@ -8,3 +8,4 @@ temp/*
 *.csv
 sources
 output/*
+*.geojson
