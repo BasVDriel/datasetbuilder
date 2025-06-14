@@ -37,10 +37,13 @@ def pointcloud_to_chm(las_file_path, resolution, ground_class=2, tree_class=1):
 
     # Make digital elevation model using s bining from scipy
     dem_stat, _, _, _ = binned_statistic_2d(gx, gy, gz, statistic='min', bins=[width, height])
+    dem_count, _, _, _ = binned_statistic_2d(gx, gy, gz, statistic='count', bins=[width, height])
     dem = np.flipud(dem_stat.T)# flip axis order to convert back to np
 
     # Digital surface model
     dsm_stat, _, _, _ = binned_statistic_2d(cx, cy, cz, statistic='max', bins=[width, height])
+    dsm_count, _, _, _ = binned_statistic_2d(gx, gy, gz, statistic='count', bins=[width, height])
+
     dsm = np.flipud(dsm_stat.T)
 
     # fill missing values
@@ -52,7 +55,7 @@ def pointcloud_to_chm(las_file_path, resolution, ground_class=2, tree_class=1):
 
     transform = from_origin(min_x, max_y, resolution, resolution)
 
-    return chm, transform
+    return chm, transform, (dem_count, dsm_count)
 
 
 def world_to_pixel(transform, x, y, round=True):

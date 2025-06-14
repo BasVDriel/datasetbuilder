@@ -238,9 +238,32 @@ class DSBuilder:
         subtile_idx = "31HN1_20"
         las_file_path = os.path.join(ahn_dir, f"{subtile_idx}.LAZ")
 
-        chm, transform = pointcloud_to_chm(las_file_path, resolution)
+        chm, transform, stats = pointcloud_to_chm(las_file_path, resolution)
 
-        # === Save CHM Raster ===
+        dem_stat, dsm_stat = stats
+
+        cm=1/2.54
+        plt.figure(figsize=(10*cm, 8*cm))  # Set a large figure size
+        plt.hist(dem_stat.ravel(), bins=20, edgecolor='black')
+        plt.xlim(1,10)
+        plt.xlabel("Points per cell")
+        plt.ylabel("Counts")
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        plt.show()
+
+        # === Plot CHM ===
+        cm=1/2.54
+        plt.figure(figsize=(10*cm, 8*cm))  # Set a large figure size
+        plt.imshow(chm)
+        cbar = plt.colorbar(label="Canopy Height (m)")
+        cbar.ax.tick_params(labelsize=8)
+        plt.xlabel("Easting (m)")
+        plt.ylabel("Northing (m)")
+        plt.grid(visible=True, alpha=0.5)
+        plt.show()
+
+        print(f"CHM saved to: {os.path.abspath(chm_path)}")
         chm_path = "output_chm.tif"
         with rasterio.open(
             chm_path,
@@ -254,17 +277,6 @@ class DSBuilder:
             transform=transform
         ) as dst:
             dst.write(chm, 1)
-
-        print(f"CHM saved to: {os.path.abspath(chm_path)}")
-        # === Plot CHM ===
-        plt.figure(figsize=(10, 15))  # Set a large figure size
-        plt.imshow(chm, cmap="gray")
-        plt.colorbar(label="Canopy Height (m)")
-        plt.title("Canopy Height Model (CHM)")
-        plt.xlabel("Easting (m)")
-        plt.ylabel("Northing (m)")
-        plt.grid(visible=True, alpha=0.5)
-        plt.show()
 
 
     def build_dataset(self, subtile_idx="31HN1_20", plot=True, resolution=0.5):
@@ -288,7 +300,7 @@ class DSBuilder:
 
         # Construct CHM
         las_file_path = os.path.join(ahn_dir, f"{subtile_idx}.LAZ")
-        chm, transform = pointcloud_to_chm(las_file_path, resolution)
+        chm, transform, stats = pointcloud_to_chm(las_file_path, resolution)
 
         # extract the specific subtile polygon
         subtile_polygons_gdf = gpd.read_file(ahn_subtile_path)
