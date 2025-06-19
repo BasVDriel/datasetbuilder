@@ -80,18 +80,63 @@ python dsbuilder.py wmts_quality --exp_name "test_exp" --download True --plot Tr
 * `/sentinel`: Sentinel-2 tiles downloaded
 * `/output`:
 
-  * `dataset.geojson`: GeoJSON dataset with enriched attributes:
-
-    * Tree scientific name
-    * Tree coordinates (`x`, `y`)
-    * Paths to orthomosaic images (high and low resolution)
-    * Paths to point cloud and Sentinel tiles
-    * Canopy polygon geometry for each tree
+  * `dataset.geojson` The Geojson dataset has the following attributes as described below. Most of them have been carried over from the Utrecht dataset so they are not new columns. Those have been marked with  (carryover from Utrecht).
+	  * **Nederlandse_naam** - Species name in dutch (carryover from Utrecht)
+	  * **Wetenschappelijke_naam** - Scientific species name, this is used as a label  (carryover from Utrecht)
+	  * **Plantjaar** - Year in which the tree was planted  (carryover from Utrecht)
+	  * **Eigenaar** - The owner that has jurisdiction over the tree  (carryover from Utrecht)
+	  * **Buurt** - Neighbourhood in which the tree exists  (carryover from Utrecht)
+	  * **Wijk** - District in which the tree exists  (carryover from Utrecht)
+	  * **Boomnummer** - A unique number for the tree within the Utrecht database  (carryover from Utrecht)
+	  * **Zeldzaam** - Whether the tree is rare. "ja" or "nee" (carryover from Utrecht) 
+	  * **Oud** - Whether the tree is older than 80 years. "ja" or "nee"   (carryover from Utrecht)
+	  * **Bospltsn** Whether a tree is in a part. 1 or 0  (carryover from Utrecht)
+	  * **Legenda** The genus of the tree  (carryover from Utrecht)
+	  * **Exportdat** The data that the tree was entered into the Utrecht database in yyyymmdd  (carryover from Utrecht)
+	  * **x** The X component of the stem coordinate in EPSG:28992 
+	  * **y** The Y component of the stem coordinate in EPGS:28992
+	  * **yyyy_gsdnn** The path to the specific orthomosaic directory in the file structure, where the resolution (nn) can be 8 cm or 25 cm. The year (yyyy) is specified in four digits. There can be multiple of these
+	  * **las_path** The path to the .las file in the dataset.
+	  * **Sentinel_path** The path to the .nc file in the dataset.
+	  * **geometry** The canopy polygon. Interpretable by many geojson readers. Can be read out with shapely in python.
 
 The dataset is organized with subdirectories for each data modality (point clouds, orthomosaics, Sentinel images) facilitating easy access and future processing.
 
 ---
 
+## Data description
+### Sources
+The data in this dataset is sourced from various public sources, which can be accessed through their respective APIs.
+- The AHN tiles are sourced from geotiles at https://geotiles.citg.tudelft.nl/
+- The Orthophotos are sourced from PDOK at https://service.pdok.nl/hwh/luchtfotorgb/wmts/v1_0?&request=GetCapabilities&service=WMTS
+- The Sentinel-2 data are sourced by Planetary Computer at https://planetarycomputer.microsoft.com/dataset/sentinel-2-l2a
+
+### Data types
+- **Sentinel** - The spectral data cubes from sentinel 2 are stored in the NetCDF (.nc) format. Specific descriptions regarding cell size, wavelength and such can be found in the files themselves.
+- **Point cloud** - The point clouds are stored in the (.las) format. It is difficult to find the specification all of the attributes, but here are the ones that I am certain of
+	- **X**  - X component of coordinate
+	- **Y** - Y component of coordinate
+	- **Z** - Z component of coordinate
+	- **intensity** - Returned intensity of the LIDAR pulse
+	- **return_number** - The n-th reflection from the lidar pulse
+	- **number_of_returns** - Number of reflections from the LIDAR pulse (e.g. from foliage penetration)
+	- **synthetic** - Unclear
+	- **key_point** - Unclear
+	- **withheld** - Unclear
+	- **overlap** - Unclear
+	- **scanner_channel** - The laser channel on the LIDAR that the point came from
+	- **scan_direction_flag** - Unclear
+	- **edge_of_flight_line** - Probably whether the point is in the edge of a flight line.
+	- **classification** - The class as specified by https://www.ahn.nl/kwaliteitsbeschrijving
+	- **user_data** - Unclear
+	- **scan_angle** - Unclear
+	- **point_source_id** - Unclear
+	- **gps_time** - Likely the GPS time of the sensor.
+	- **red** - Red channel from orthophoto inpainting
+	- **green** - Green channel from orthophoto inpainting
+	- **blue** - Blue channel from orthophoto inpainting
+	- **nir** - Infrared channel from orthophoto inpainting, likely from the CIR imagery.
+- **Orthomosaics** - The orthomosaics are stored as geotiff files. The files have their CRS implicitly encoded (EPSG:28992). Other than than, the files just have three bands R, G and B.
 
 ## License
 
